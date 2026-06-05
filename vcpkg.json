@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "noise-art",
+  "version-string": "0.1.0",
+  "builtin-baseline": "cea592f4772491abdb7c483387a59ea89889f4be",
+  "description": "NoiseArt — кросплатформний редактор зображень з шаровою системою ефектів",
+  "dependencies": [
+    "sdl3",
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental",
+        "opengl3-binding",
+        "sdl3-binding"
+      ]
+    },
+    {
+      "name": "glad",
+      "features": [
+        "gl-api-46"
+      ]
+    },
+    "stb"
+  ]
+}

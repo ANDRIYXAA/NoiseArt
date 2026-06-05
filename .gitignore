@@ -1,0 +1,33 @@
+# ===== Збірка =====
+build/
+out/
+cmake-build-*/
+
+# ===== IDE =====
+.vs/
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# ===== CMake =====
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+
+# ===== Компіляція =====
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
+*.ilk
+*.lib
+*.a
+
+# ===== OS =====
+Thumbs.db
+.DS_Store

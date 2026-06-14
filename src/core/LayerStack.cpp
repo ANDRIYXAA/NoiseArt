@@ -83,6 +83,12 @@ void LayerStack::duplicateLayer(int index)
     m_dirty = true;
 }
 
+void LayerStack::clear() {
+    m_layers.clear();
+    m_selectedIndex = -1;
+    m_dirty = true;
+}
+
 // ============================================================================
 // processAll() — Обробити зображення через ВСІ шари
 // ============================================================================
@@ -124,6 +130,99 @@ const Layer* LayerStack::getLayer(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_layers.size())) return nullptr;
     return m_layers[index].get();
+}
+
+// ============================================================================
+// Multi-Select API
+// ============================================================================
+
+void LayerStack::addToSelection(int index) {
+    if (index >= 0 && index < static_cast<int>(m_layers.size())) {
+        m_selectedIndices.insert(index);
+        m_selectedIndex = index;
+    }
+}
+
+void LayerStack::removeFromSelection(int index) {
+    m_selectedIndices.erase(index);
+    if (m_selectedIndex == index) {
+        m_selectedIndex = m_selectedIndices.empty() ? -1 : *m_selectedIndices.rbegin();
+    }
+}
+
+void LayerStack::toggleSelection(int index) {
+    if (isSelected(index)) {
+        removeFromSelection(index);
+    } else {
+        addToSelection(index);
+    }
+}
+
+void LayerStack::clearSelection() {
+    m_selectedIndices.clear();
+    m_selectedIndex = -1;
+}
+
+bool LayerStack::isSelected(int index) const {
+    return m_selectedIndices.count(index) > 0;
+}
+
+// ============================================================================
+// flattenTree() — Лінеаризація дерева шарів
+// ============================================================================
+std::vector<LayerStack::FlatEntry> LayerStack::flattenTree() const {
+    std::vector<FlatEntry> result;
+    for (int i = 0; i < static_cast<int>(m_layers.size()); ++i) {
+        flattenRecursive(m_layers[i].get(), 0, i, -1, nullptr, result);
+    }
+    return result;
+}
+
+void LayerStack::flattenRecursive(Layer* layer, int depth, int rootIdx, int childIdx, Layer* parent, std::vector<FlatEntry>& out) const {
+    if (!layer) return;
+    out.push_back({ layer, depth, rootIdx, childIdx, parent });
+    
+    if (!layer->isCollapsed()) {
+        for (int i = 0; i < layer->getChildCount(); ++i) {
+            flattenRecursive(layer->getChild(i), depth + 1, rootIdx, i, layer, out);
+        }
+    }
+}
+
+// ============================================================================
+// nestLayer() — Вкласти шар як дочірній
+// ============================================================================
+void LayerStack::nestLayer(int childIdx, int parentIdx) {
+    if (childIdx < 0 || childIdx >= static_cast<int>(m_layers.size())) return;
+    if (parentIdx < 0 || parentIdx >= static_cast<int>(m_layers.size())) return;
+    if (childIdx == parentIdx) return;
+
+    auto child = std::move(m_layers[childIdx]);
+    m_layers.erase(m_layers.begin() + childIdx);
+    
+    // Коригуємо parentIdx якщо він був після childIdx
+    int adjustedParent = (parentIdx > childIdx) ? parentIdx - 1 : parentIdx;
+    
+    if (adjustedParent >= 0 && adjustedParent < static_cast<int>(m_layers.size())) {
+        m_layers[adjustedParent]->addChild(std::move(child));
+    }
+    
+    m_selectedIndex = -1;
+    m_dirty = true;
+}
+
+// ============================================================================
+// unnestLayer() — Витягнути дочірній шар на root рівень
+// ============================================================================
+void LayerStack::unnestLayer(int parentIdx, int childIdx) {
+    if (parentIdx < 0 || parentIdx >= static_cast<int>(m_layers.size())) return;
+    
+    auto child = m_layers[parentIdx]->removeChild(childIdx);
+    if (child) {
+        m_layers.insert(m_layers.begin() + parentIdx + 1, std::move(child));
+        m_selectedIndex = parentIdx + 1;
+        m_dirty = true;
+    }
 }
 
 } // namespace NoiseArt

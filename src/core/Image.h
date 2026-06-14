@@ -29,6 +29,17 @@ public:
     /// Створює порожнє чорне зображення заданого розміру
     void create(int width, int height, int channels = 4);
 
+    /// Очищує все зображення заданим кольором
+    void clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255) {
+        if (isEmpty()) return;
+        for (size_t i = 0; i < m_pixels.size(); i += m_channels) {
+            m_pixels[i] = r;
+            m_pixels[i+1] = g;
+            m_pixels[i+2] = b;
+            if (m_channels >= 4) m_pixels[i+3] = a;
+        }
+    }
+
     /// Створює точну копію зображення (з усіма пікселями)
     Image clone() const;
 

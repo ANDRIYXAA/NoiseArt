@@ -1,18 +1,22 @@
 // ============================================================================
 // NoiseArt — Клас Layer (Шар)
 // ============================================================================
-// Один шар = ефект + метадані (назва, видимість, непрозорість, режим змішування).
+// Один шар = ефект + метадані + дочірні шари.
 //
-// Шар "обгортає" ефект і додає до нього:
-// - Opacity (непрозорість): 0% = повністю прозорий, 100% = повний ефект
-// - BlendMode (режим змішування): як шар комбінується з попереднім
-// - Enabled (увімкнений): можна тимчасово "вимкнути" шар без видалення
+// Шар може містити дочірні шари (tree structure):
+//   Layer (Group)
+//     ├── Layer (Image)
+//     ├── Layer (Vector)
+//     └── Layer (Text)
+//
+// Дочірні шари наслідують батьківські трансформації (позиція).
 // ============================================================================
 
 #pragma once
 
 #include <string>
 #include <memory>
+#include <vector>
 #include "effects/Effect.h"
 #include "core/Image.h"
 
@@ -21,14 +25,6 @@ namespace NoiseArt {
 // ============================================================================
 // BlendMode — режими змішування
 // ============================================================================
-// Визначає, ЯК результат ефекту комбінується з оригіналом.
-//
-// Приклад (для одного пікселя, opacity = 100%):
-//   Original = 100, Effect = 200
-//   Normal:   200                    (просто заміна)
-//   Add:      min(100 + 200, 255) = 255  (додавання — яскравіше)
-//   Multiply: 100 * 200 / 255 = 78   (множення — темніше)
-//   Screen:   255 - (155 * 55 / 255) = 221  (екран — яскравіше)
 enum class BlendMode {
     Normal,     // Просто замінює (з урахуванням opacity)
     Add,        // Додавання — робить яскравіше
@@ -62,7 +58,7 @@ public:
     const Effect* getEffect() const { return m_effect.get(); }
 
     float getOpacity() const { return m_opacity; }
-    void setOpacity(float opacity) { m_opacity = std::max(0.0f, std::min(1.0f, opacity)); }
+    void setOpacity(float opacity) { m_opacity = (std::max)(0.0f, (std::min)(1.0f, opacity)); }
 
     bool isEnabled() const { return m_enabled; }
     void setEnabled(bool enabled) { m_enabled = enabled; }
@@ -70,7 +66,34 @@ public:
     BlendMode getBlendMode() const { return m_blendMode; }
     void setBlendMode(BlendMode mode) { m_blendMode = mode; }
 
-    /// Дублювання шару (з копією ефекту)
+    // ----- Дочірні шари (Child Layers) -----
+
+    /// Додати дочірній шар
+    void addChild(std::unique_ptr<Layer> child);
+
+    /// Вставити дочірній шар на позицію
+    void insertChild(int index, std::unique_ptr<Layer> child);
+
+    /// Видалити дочірній шар (повертає його для переміщення)
+    std::unique_ptr<Layer> removeChild(int index);
+
+    /// Доступ до дочірнього шару
+    Layer* getChild(int index);
+    const Layer* getChild(int index) const;
+    int getChildCount() const { return static_cast<int>(m_children.size()); }
+    std::vector<std::unique_ptr<Layer>>& getChildren() { return m_children; }
+    const std::vector<std::unique_ptr<Layer>>& getChildren() const { return m_children; }
+    bool hasChildren() const { return !m_children.empty(); }
+
+    /// Батьківський шар (weak reference, не володіє)
+    Layer* getParent() const { return m_parent; }
+    void setParent(Layer* parent) { m_parent = parent; }
+
+    /// Згорнутий/розгорнутий стан у UI дереві
+    bool isCollapsed() const { return m_collapsed; }
+    void setCollapsed(bool c) { m_collapsed = c; }
+
+    /// Дублювання шару (з копією ефекту та дітей)
     std::unique_ptr<Layer> clone() const;
 
 private:
@@ -83,6 +106,11 @@ private:
     float m_opacity = 1.0f;
     bool m_enabled = true;
     BlendMode m_blendMode = BlendMode::Normal;
+
+    // --- Child layers ---
+    std::vector<std::unique_ptr<Layer>> m_children;
+    Layer* m_parent = nullptr;   // weak ref, не видаляти!
+    bool m_collapsed = false;
 };
 
 } // namespace NoiseArt

@@ -110,12 +110,15 @@ void Layer::blendPixel(const uint8_t* base, const uint8_t* effect,
         result[c] = static_cast<uint8_t>(std::clamp(final_value * 255.0f, 0.0f, 255.0f));
     }
 
-    // Alpha канал — завжди від ефекту
-    result[3] = effect[3];
+    // Alpha канал — змішуємо з урахуванням opacity
+    float b_a = static_cast<float>(base[3]) / 255.0f;
+    float e_a = static_cast<float>(effect[3]) / 255.0f;
+    float final_a = b_a + opacity * (e_a - b_a);
+    result[3] = static_cast<uint8_t>(std::clamp(final_a * 255.0f, 0.0f, 255.0f));
 }
 
 // ============================================================================
-// clone() — Дублювання шару
+// clone() — Дублювання шару (рекурсивно з дітьми)
 // ============================================================================
 std::unique_ptr<Layer> Layer::clone() const
 {
@@ -123,7 +126,50 @@ std::unique_ptr<Layer> Layer::clone() const
     copy->setOpacity(m_opacity);
     copy->setEnabled(m_enabled);
     copy->setBlendMode(m_blendMode);
+    copy->setCollapsed(m_collapsed);
+
+    // Рекурсивно клонуємо дочірні шари
+    for (const auto& child : m_children) {
+        auto childCopy = child->clone();
+        childCopy->setParent(copy.get());
+        copy->m_children.push_back(std::move(childCopy));
+    }
+
     return copy;
+}
+
+// ============================================================================
+// Child Layer API
+// ============================================================================
+
+void Layer::addChild(std::unique_ptr<Layer> child) {
+    child->setParent(this);
+    m_children.push_back(std::move(child));
+}
+
+void Layer::insertChild(int index, std::unique_ptr<Layer> child) {
+    if (index < 0) index = 0;
+    if (index > static_cast<int>(m_children.size())) index = static_cast<int>(m_children.size());
+    child->setParent(this);
+    m_children.insert(m_children.begin() + index, std::move(child));
+}
+
+std::unique_ptr<Layer> Layer::removeChild(int index) {
+    if (index < 0 || index >= static_cast<int>(m_children.size())) return nullptr;
+    auto child = std::move(m_children[index]);
+    m_children.erase(m_children.begin() + index);
+    child->setParent(nullptr);
+    return child;
+}
+
+Layer* Layer::getChild(int index) {
+    if (index < 0 || index >= static_cast<int>(m_children.size())) return nullptr;
+    return m_children[index].get();
+}
+
+const Layer* Layer::getChild(int index) const {
+    if (index < 0 || index >= static_cast<int>(m_children.size())) return nullptr;
+    return m_children[index].get();
 }
 
 } // namespace NoiseArt

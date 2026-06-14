@@ -45,8 +45,9 @@ public:
     int getHeight() const { return m_height; }
     bool isValid() const { return m_textureID != 0; }
 
-private:
     void cleanup();
+
+private:
 
     GLuint m_textureID = 0;
     int m_width = 0;

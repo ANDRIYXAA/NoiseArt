@@ -101,7 +101,8 @@ public:
     bool renderUI() override
     {
         bool changed = false;
-        changed |= ImGui::SliderInt("Radius", &m_radius, 0, 50);
+        ImGui::SliderInt("Radius", &m_radius, 0, 50);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
         return changed;
     }
 

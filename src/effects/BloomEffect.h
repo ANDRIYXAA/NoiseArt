@@ -88,9 +88,12 @@ public:
     bool renderUI() override
     {
         bool changed = false;
-        changed |= ImGui::SliderFloat("Threshold", &m_threshold, 0.0f, 100.0f, "%.1f%%");
-        changed |= ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 2.0f, "%.2f");
-        changed |= ImGui::SliderInt("Blur Passes", &m_passes, 1, 5);
+        ImGui::SliderFloat("Threshold", &m_threshold, 0.0f, 100.0f, "%.1f%%");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 2.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderInt("Blur Passes", &m_passes, 1, 5);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
         return changed;
     }
 

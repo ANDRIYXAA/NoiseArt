@@ -66,7 +66,9 @@ public:
     {
         bool changed = false;
 
-        changed |= ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 100.0f, "%.1f%%");
+        ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 100.0f, "%.1f%%");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        
         changed |= ImGui::Checkbox("Monochrome", &m_monochrome);
         changed |= ImGui::InputInt("Seed", &m_seed);
 

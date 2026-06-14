@@ -13,6 +13,9 @@
 #include <string>
 #include <memory>
 #include "core/Image.h"
+#include "effects/ITransformable.h"
+
+struct NVGcontext;
 
 namespace NoiseArt {
 
@@ -37,16 +40,35 @@ public:
 
     // ----- Основна робота -----
 
-    /// Застосовує ефект.
+    /// Застосовує ефект (тільки для растрових шарів).
     /// @param input Оригінальне зображення (від попереднього шару)
     /// @param output Зображення, куди ми записуємо результат
     virtual void apply(const Image& input, Image& output) = 0;
+
+    // ----- Векторне малювання -----
+    
+    /// Повертає true, якщо це векторний ефект (NanoVG)
+    virtual bool isVector() const { return false; }
+    
+    /// Малює вектори у FBO. Викликається під час GPU-рендерингу.
+    virtual void renderVector(NVGcontext* vg) {}
+
+    // ----- Шейдерне малювання -----
+    
+    /// Повертає true, якщо це шейдерний ефект (GLSL)
+    virtual bool isShader() const { return false; }
+
+    /// Малює шейдер у FBO. Викликається під час GPU-рендерингу.
+    virtual void renderShader(int width, int height, float time) {}
 
     // ----- UI -----
 
     /// Малює налаштування ефекту в ImGui (слайдери, чекбокси).
     /// @return true, якщо користувач змінив якийсь параметр (треба перерахувати зображення)
     virtual bool renderUI() = 0;
+
+    // ----- Трансформації -----
+    virtual ITransformable* getTransformable() { return nullptr; }
 
     // ----- Утиліти -----
 

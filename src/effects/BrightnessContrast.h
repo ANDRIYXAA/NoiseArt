@@ -65,8 +65,10 @@ public:
 
         // ImGui::SliderFloat — повзунок (слайдер) для числа з комою
         // "%.1f" — формат виводу (одна цифра після коми)
-        changed |= ImGui::SliderFloat("Brightness", &m_brightness, -100.0f, 100.0f, "%.1f");
-        changed |= ImGui::SliderFloat("Contrast", &m_contrast, -100.0f, 100.0f, "%.1f");
+        ImGui::SliderFloat("Brightness", &m_brightness, -100.0f, 100.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Contrast", &m_contrast, -100.0f, 100.0f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
 
         // Кнопка скидання
         if (ImGui::Button("Reset")) {

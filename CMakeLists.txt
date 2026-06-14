@@ -45,6 +45,7 @@ find_package(OpenGL REQUIRED)
 
 # stb — завантаження/збереження зображень (header-only)
 find_package(Stb REQUIRED)
+find_package(nanovg CONFIG REQUIRED)
 
 # ===== Створюємо виконуваний файл =====
 # Тут перелічуємо ВСІ .cpp файли проєкту.
@@ -61,18 +62,28 @@ add_executable(${PROJECT_NAME}
     src/core/Image.cpp
     src/core/Layer.cpp
     src/core/LayerStack.cpp
+    src/core/Camera2D.cpp
+    src/core/History.cpp
+    src/core/KeybindManager.cpp
 
     # Ефекти
     src/effects/EffectRegistry.cpp
+    src/effects/ArtboardLayerEffect.cpp
+    src/effects/ShaderLayerEffect.cpp
+    src/effects/TextLayerEffect.cpp
+    src/effects/VectorLayerEffect.cpp
 
     # Рендеринг
     src/renderer/Texture.cpp
+    src/renderer/Framebuffer.cpp
+    src/renderer/Shader.cpp
 
     # UI Панелі
     src/ui/panels/ViewportPanel.cpp
     src/ui/panels/LayersPanel.cpp
     src/ui/panels/EffectsPanel.cpp
     src/ui/panels/PropertiesPanel.cpp
+    src/ui/panels/SettingsPanel.cpp
 )
 
 # ===== Шляхи для #include =====
@@ -90,6 +101,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     imgui::imgui            # Dear ImGui з бекендами
     glad::glad              # GLAD — завантажувач OpenGL
     OpenGL::GL              # Системна OpenGL бібліотека
+    nanovg::nanovg
+)
+
+# Копіюємо папку resources у вихідну директорію після збірки
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/resources"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/resources"
 )
 
 # ===== Кросплатформні налаштування =====

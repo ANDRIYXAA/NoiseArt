@@ -20,6 +20,10 @@
         "gl-api-46"
       ]
     },
-    "stb"
+    "stb",
+    "portable-file-dialogs",
+    "glm",
+    "nanovg",
+    "nlohmann-json"
   ]
 }

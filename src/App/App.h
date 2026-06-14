@@ -63,6 +63,7 @@ private:
     // ----- Файлові операції -----
     void openImage(const std::string& path);
     void saveImage(const std::string& path);
+    void processPendingFonts();   // обробити запит "Add Font..." (потрібен NanoVG-контекст)
 
     // ----- SDL -----
     SDL_Window* m_window = nullptr;

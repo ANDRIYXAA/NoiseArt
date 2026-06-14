@@ -45,13 +45,20 @@ public:
     const float* getTextColor() const { return m_color; }
 
     /// Рендерить текст через NanoVG у власний FBO + застосовує фільтри/обрізання → кеш-текстура
-    void rasterizeAndProcess(NVGcontext* vg, const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip);
+    void rasterizeAndProcess(NVGcontext* vg, const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip, float renderScale = 1.0f);
+    /// Чи треба переростеризувати текст під поточний зум (для чіткості)
+    bool needsRerasterAtZoom(float zoom) const;
     /// Готова текстура тексту (nullptr якщо ще не растеризовано)
     const Texture* getProcessedTexture() const {
         return (m_processed && m_processed->isValid()) ? m_processed.get() : nullptr;
     }
 
-    // Список доступних шрифтів (ті ж імена, що зареєстровані в NanoVG)
+    // Динамічний список шрифтів (стартує з вбудованих, поповнюється через "Add Font")
+    static std::vector<std::string>& fonts();
+    /// Прапорець-запит на додавання шрифту (обробляє App — у нього є NanoVG-контекст)
+    static bool& fontAddRequested();
+
+    // Вбудовані шрифти (ті ж імена, що зареєстровані в NanoVG) — стартовий список
     static constexpr const char* FontNames[] = {
         "Inter", "Arial", "Times New Roman", "Courier New",
         "Georgia", "Verdana", "Trebuchet MS", "Impact",
@@ -82,6 +89,7 @@ private:
     std::shared_ptr<Texture> m_processed;   // кеш растеризованого/обробленого тексту
     float m_measuredW = 0.0f;               // виміряні розміри (з останньої растеризації)
     float m_measuredH = 0.0f;
+    float m_lastScale = 0.0f;               // масштаб останньої растеризації (для зум-чіткості)
 };
 
 } // namespace NoiseArt

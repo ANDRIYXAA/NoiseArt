@@ -11,6 +11,20 @@ TextLayerEffect::TextLayerEffect() {
     m_textBuffer[sizeof(m_textBuffer) - 1] = '\0';
 }
 
+std::vector<std::string>& TextLayerEffect::fonts() {
+    static std::vector<std::string> s = [] {
+        std::vector<std::string> v;
+        for (int i = 0; i < FontCount; ++i) v.push_back(FontNames[i]);
+        return v;
+    }();
+    return s;
+}
+
+bool& TextLayerEffect::fontAddRequested() {
+    static bool r = false;
+    return r;
+}
+
 void TextLayerEffect::apply(const Image& input, Image& output) {
     output = input; // Vector layer, raster is untouched
 }
@@ -21,8 +35,9 @@ void TextLayerEffect::renderVector(NVGcontext* vg) {
     nvgFontSize(vg, m_fontSize);
     
     // Використовуємо вибраний шрифт
-    const char* fontName = (m_fontIndex >= 0 && m_fontIndex < FontCount) 
-        ? FontNames[m_fontIndex] : "Inter";
+    auto& fl = fonts();
+    const char* fontName = (m_fontIndex >= 0 && m_fontIndex < static_cast<int>(fl.size()))
+        ? fl[m_fontIndex].c_str() : "Inter";
     nvgFontFace(vg, fontName);
     
     int alignFlags = NVG_ALIGN_TOP;
@@ -46,9 +61,19 @@ bool TextLayerEffect::renderUI() {
 
     ImGui::SeparatorText("Font");
     
-    // Вибір шрифту
-    if (ImGui::Combo("Font", &m_fontIndex, FontNames, FontCount)) {
-        changed = true;
+    // Вибір шрифту (динамічний список)
+    auto& fl = fonts();
+    const char* cur = (m_fontIndex >= 0 && m_fontIndex < static_cast<int>(fl.size())) ? fl[m_fontIndex].c_str() : "Inter";
+    if (ImGui::BeginCombo("Font", cur)) {
+        for (int i = 0; i < static_cast<int>(fl.size()); ++i) {
+            bool sel = (i == m_fontIndex);
+            if (ImGui::Selectable(fl[i].c_str(), sel)) { m_fontIndex = i; changed = true; }
+            if (sel) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::Button("Add Font...")) {
+        fontAddRequested() = true;   // App відкриє діалог і завантажить через NanoVG
     }
     
     if (ImGui::DragFloat("Font Size", &m_fontSize, 1.0f, 8.0f, 1000.0f)) changed = true;
@@ -84,10 +109,11 @@ std::unique_ptr<Effect> TextLayerEffect::clone() const {
     return copy;
 }
 
-void TextLayerEffect::rasterizeAndProcess(NVGcontext* vg, const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip) {
+void TextLayerEffect::rasterizeAndProcess(NVGcontext* vg, const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip, float renderScale) {
     if (m_text.empty() || !vg) { m_processed.reset(); return; }
 
-    const char* fontName = (m_fontIndex >= 0 && m_fontIndex < FontCount) ? FontNames[m_fontIndex] : "Inter";
+    auto& fl = fonts();
+    const char* fontName = (m_fontIndex >= 0 && m_fontIndex < static_cast<int>(fl.size())) ? fl[m_fontIndex].c_str() : "Inter";
 
     // Вимірюємо розмір тексту вибраним шрифтом
     nvgFontSize(vg, m_fontSize);
@@ -103,10 +129,18 @@ void TextLayerEffect::rasterizeAndProcess(NVGcontext* vg, const std::vector<std:
     m_measuredW = tw;
     m_measuredH = th;
 
-    int fw = static_cast<int>(std::ceil(tw));
-    int fh = static_cast<int>(std::ceil(th));
-    if (fw > 2048) fw = 2048;
-    if (fh > 2048) fh = 2048;
+    // Масштаб рендеру (під зум, для чіткості), обмежений так, щоб FBO не перевищив 2048
+    float capW = (tw > 1.0f) ? 2048.0f / tw : 2048.0f;
+    float capH = (th > 1.0f) ? 2048.0f / th : 2048.0f;
+    float capS = (capW < capH) ? capW : capH;
+    float S = renderScale;
+    if (S < 0.5f) S = 0.5f;
+    if (S > capS) S = capS;
+    if (S < 0.05f) S = 0.05f;
+    m_lastScale = S;
+
+    int fw = static_cast<int>(std::ceil(tw * S));
+    int fh = static_cast<int>(std::ceil(th * S));
     if (fw < 1) fw = 1;
     if (fh < 1) fh = 1;
 
@@ -122,6 +156,7 @@ void TextLayerEffect::rasterizeAndProcess(NVGcontext* vg, const std::vector<std:
     glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
     nvgBeginFrame(vg, static_cast<float>(fw), static_cast<float>(fh), 1.0f);
+    nvgScale(vg, S, S);   // рендеримо у вищій роздільності → чіткість при зумі
     nvgFontSize(vg, m_fontSize);
     nvgFontFace(vg, fontName);
     nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
@@ -172,6 +207,18 @@ void TextLayerEffect::rasterizeAndProcess(NVGcontext* vg, const std::vector<std:
 
     if (!m_processed) m_processed = std::make_shared<Texture>();
     m_processed->update(img);
+}
+
+bool TextLayerEffect::needsRerasterAtZoom(float zoom) const {
+    if (m_text.empty()) return false;
+    if (m_lastScale <= 0.0f) return true;
+    float capW = (m_measuredW > 1.0f) ? 2048.0f / m_measuredW : 2048.0f;
+    float capH = (m_measuredH > 1.0f) ? 2048.0f / m_measuredH : 2048.0f;
+    float capS = (capW < capH) ? capW : capH;
+    float ratio = zoom / m_lastScale;
+    if (ratio > 1.25f && m_lastScale < capS - 0.01f) return true;  // зум-ін, є запас якості
+    if (ratio < 0.8f) return true;                                  // зум-аут — менший буфер
+    return false;
 }
 
 float TextLayerEffect::getWidth() const {

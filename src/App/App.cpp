@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <utility>
 #include <vector>
+#include <portable-file-dialogs.h>
 
 // Для діалогу відкриття файлу на Windows
 #ifdef _WIN32
@@ -213,6 +214,9 @@ void App::run()
         // Панелі
         renderUI();
 
+        // Запит на додавання шрифту (кнопка "Add Font...")
+        processPendingFonts();
+
         // Обробка (перерахунок ефектів якщо dirty)
         updateProcessing();
 
@@ -323,7 +327,8 @@ void App::renderUI()
 // ============================================================================
 void App::updateProcessing()
 {
-    if (!m_layerStack.isDirty()) return;
+    float zoom = m_camera.getZoom();
+    bool dirty = m_layerStack.isDirty();
 
     // Модель "контент своєї групи": для кожного фото-шару застосовуємо його
     // дочірні растрові фільтри (Noise, Blur, Invert тощо) до пікселів фото.
@@ -335,6 +340,9 @@ void App::updateProcessing()
         auto ve = dynamic_cast<VectorLayerEffect*>(eff);
         auto te = dynamic_cast<TextLayerEffect*>(eff);
         if (!ov && !ve && !te) continue;   // обробка для фото, векторів і тексту
+
+        // На не-dirty кадрах переростеризовуємо ЛИШЕ текст під зум (для чіткості)
+        if (!dirty && !(te && te->needsRerasterAtZoom(zoom))) continue;
 
         // Фільтри: власні дочірні + успадковані від груп-предків (модель "контент своєї групи").
         // Тобто фільтр, покладений у групу/артборд, діє на весь контент усередині.
@@ -366,10 +374,10 @@ void App::updateProcessing()
 
         if (ov) ov->applyFilters(filters, clip);
         else if (ve) ve->applyFilters(filters, clip);
-        else te->rasterizeAndProcess(m_vg, filters, clip);
+        else te->rasterizeAndProcess(m_vg, filters, clip, zoom);
     }
 
-    m_layerStack.setDirty(false);
+    if (dirty) m_layerStack.setDirty(false);
 }
 
 // ============================================================================
@@ -400,6 +408,31 @@ void App::saveImage(const std::string& path)
         return;
     }
     m_resultImage.saveToFile(path);
+}
+
+// ============================================================================
+// processPendingFonts() — додавання шрифту через діалог + NanoVG
+// ============================================================================
+void App::processPendingFonts()
+{
+    if (!TextLayerEffect::fontAddRequested()) return;
+    TextLayerEffect::fontAddRequested() = false;
+
+    auto res = pfd::open_file("Choose a font", "",
+        { "Fonts (.ttf .otf)", "*.ttf *.otf", "All Files", "*" }).result();
+    if (res.empty()) return;
+
+    std::string path = res[0];
+    std::string name = std::filesystem::path(path).stem().string();
+    if (name.empty()) return;
+
+    if (m_vg && nvgCreateFont(m_vg, name.c_str(), path.c_str()) != -1) {
+        TextLayerEffect::fonts().push_back(name);
+        m_layerStack.setDirty(true);
+        std::cout << "[OK] Шрифт додано: " << name << std::endl;
+    } else {
+        std::cerr << "[ПОМИЛКА] Не вдалося завантажити шрифт: " << path << std::endl;
+    }
 }
 
 // ============================================================================

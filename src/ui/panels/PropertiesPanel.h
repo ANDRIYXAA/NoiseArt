@@ -13,11 +13,15 @@
 
 namespace NoiseArt {
 
+class AppSettings; // Forward declaration
+
 class PropertiesPanel {
 public:
-    /// @param stack Стек шарів
-    /// @return true, якщо параметри змінилися
-    bool render(LayerStack& stack);
+    /// Малює панель властивостей
+    /// @param stack Стек шарів для отримання вибраного шару
+    /// @param settings Глобальні налаштування додатку
+    /// @return true, якщо щось змінилося (потрібно перемалювати)
+    bool render(LayerStack& stack, AppSettings& settings);
 
     bool isOpen = true;
 };

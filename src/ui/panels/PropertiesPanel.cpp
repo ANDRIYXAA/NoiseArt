@@ -4,10 +4,11 @@
 
 #include "PropertiesPanel.h"
 #include "core/Layer.h"
+#include "App/App.h"
 
 namespace NoiseArt {
 
-bool PropertiesPanel::render(LayerStack& stack)
+bool PropertiesPanel::render(LayerStack& stack, AppSettings& settings)
 {
     if (!isOpen) return false;
 
@@ -19,10 +20,10 @@ bool PropertiesPanel::render(LayerStack& stack)
     Layer* layer = stack.getLayer(selected);
 
     if (!layer) {
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-            "Select a layer to edit properties.");
+        // Коли нічого не вибрано — показуємо повідомлення
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No layer selected");
         ImGui::End();
-        return false;
+        return changed;
     }
 
     // ===== Назва шару =====
@@ -50,7 +51,8 @@ bool PropertiesPanel::render(LayerStack& stack)
 
     // ===== Opacity =====
     float opacity = layer->getOpacity() * 100.0f;
-    if (ImGui::SliderFloat("Opacity", &opacity, 0.0f, 100.0f, "%.0f%%")) {
+    ImGui::SliderFloat("Opacity", &opacity, 0.0f, 100.0f, "%.0f%%");
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
         layer->setOpacity(opacity / 100.0f);
         changed = true;
         stack.setDirty();

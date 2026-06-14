@@ -1,31 +1,44 @@
-// ============================================================================
-// NoiseArt — ViewportPanel (Панель перегляду зображення)
-// ============================================================================
-// Головна панель — показує оброблене зображення з zoom та pan.
-// ============================================================================
-
 #pragma once
 
 #include <imgui.h>
+#include <memory>
+#include <string>
+#include <unordered_map>
 #include "renderer/Texture.h"
+#include "renderer/Framebuffer.h"
+#include "core/LayerStack.h"
+#include "core/Camera2D.h"
+#include "core/History.h"
+
+class History;
 
 namespace NoiseArt {
 
+struct AppSettings;
+
 class ViewportPanel {
 public:
-    /// Малює панель viewport
-    /// @param texture Текстура для відображення (результат обробки)
-    /// @param imageName Назва файлу для відображення
-    void render(const Texture& texture, const std::string& imageName = "");
+    void render(const Texture& texture, const Framebuffer& fbo, const std::string& imageName, LayerStack& layerStack, Camera2D& camera, History& history, AppSettings& settings);
 
-    // Стан
     bool isOpen = true;
 
 private:
-    float m_zoom = 1.0f;        // Масштаб (0.1 — 10.0)
-    ImVec2 m_offset = {0, 0};   // Зсув (pan)
     bool m_isPanning = false;
-    ImVec2 m_lastMousePos = {0, 0};
+    ImVec2 m_lastMousePos;
+
+    enum class DragState {
+        None, Move, ScaleTopLeft, ScaleTopRight, ScaleBottomLeft, ScaleBottomRight
+    };
+    DragState m_dragState = DragState::None;
+    ImVec2 m_dragStartMouse;
+    
+    struct DragStateData {
+        float startX = 0.0f;
+        float startY = 0.0f;
+        float startWidth = 1.0f;
+        std::unique_ptr<Layer> oldState;
+    };
+    std::unordered_map<int, DragStateData> m_dragData;
 };
 
 } // namespace NoiseArt

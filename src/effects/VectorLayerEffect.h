@@ -43,6 +43,7 @@ public:
 
     // Геттери для візуалізації у viewport
     ShapeType getShapeType() const { return m_shapeType; }
+    void setShapeType(ShapeType t) { m_shapeType = t; }
     const float* getFillColor() const { return m_color; }
     bool isFill() const { return m_fill; }
     bool hasStroke() const { return m_stroke; }

@@ -59,7 +59,16 @@ public:
 
     /// Одиночний вибір (для сумісності)
     int getSelectedIndex() const { return m_selectedIndex; }
-    void setSelectedIndex(int index) { m_selectedIndex = index; }
+    void setSelectedIndex(int index) { m_selectedIndex = index; m_selectedLayer = getLayer(index); }
+
+    // --- Вибір довільного вузла дерева (працює і для дочірніх шарів) ---
+    /// Повертає вибраний вузол; самоочищується, якщо вказівник застарів (після undo/видалення)
+    Layer* getSelectedLayer();
+    void setSelectedLayer(Layer* layer) { m_selectedLayer = layer; }
+    /// Чи існує цей шар десь у дереві (валідація вказівника)
+    bool containsLayer(const Layer* target) const;
+    /// Індекс кореневого предка шару у root-масиві (-1 якщо не знайдено)
+    int rootIndexOf(const Layer* layer) const;
 
     // --- Multi-select ---
     const std::set<int>& getSelectedIndices() const { return m_selectedIndices; }
@@ -102,6 +111,14 @@ public:
     /// Витягнути шар з батьківського на root рівень
     void unnestLayer(int parentIdx, int childIdx);
 
+    // --- Загальні операції з деревом (по вказівниках, для будь-якого вузла) ---
+    /// Зробити `moving` дитиною `newParent` (з будь-якого місця; із захистом від циклу)
+    void nestUnder(Layer* moving, Layer* newParent);
+    /// Перемістити `moving` на кореневий рівень
+    void moveToRoot(Layer* moving);
+    /// Переставити шар серед сусідів (delta -1 / +1 у масиві контейнера)
+    void moveLayerInParent(Layer* layer, int delta);
+
     // ===== Dirty flag =====
     
     bool isDirty() const { return m_dirty; }
@@ -111,8 +128,12 @@ private:
     /// Рекурсивна helper для flattenTree
     void flattenRecursive(Layer* layer, int depth, int rootIdx, int childIdx, Layer* parent, std::vector<FlatEntry>& out) const;
 
+    /// Від'єднати шар від контейнера (root або батько), повертаючи володіння
+    std::unique_ptr<Layer> detachLayer(Layer* target);
+
     std::vector<std::unique_ptr<Layer>> m_layers;
-    int m_selectedIndex = -1;          // Поточний вибраний (одиночний)
+    int m_selectedIndex = -1;          // Вибраний root (для root-операцій та історії)
+    Layer* m_selectedLayer = nullptr;  // Вибраний вузол будь-якого рівня (для редагування)
     std::set<int> m_selectedIndices;   // Multi-select (root indices)
     bool m_dirty = true;
 };

@@ -7,6 +7,7 @@
 #include "effects/OverlayEffect.h"
 #include "effects/VectorLayerEffect.h"
 #include "effects/TextLayerEffect.h"
+#include "effects/ShaderLayerEffect.h"
 #include "App/App.h"
 #include <algorithm>
 #include <cmath>
@@ -53,7 +54,7 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
     // Область для зображення
     ImVec2 winPos = ImGui::GetCursorScreenPos();
     ImVec2 winSize = ImGui::GetContentRegionAvail();
-    
+
     ImVec2 cursorPos = winPos;
     ImVec2 avail = winSize;
 
@@ -77,7 +78,7 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             float relX = mousePos.x - cursorPos.x - avail.x * 0.5f - camera.getPosition().x;
             float relY = mousePos.y - cursorPos.y - avail.y * 0.5f - camera.getPosition().y;
             float zoomRatio = newZoom / oldZoom;
-            
+
             camera.setPosition({
                 camera.getPosition().x - relX * (zoomRatio - 1.0f),
                 camera.getPosition().y - relY * (zoomRatio - 1.0f)
@@ -112,24 +113,24 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
     // ===== ІНФІНІТНА СІТКА (ГЛОБАЛЬНА) =====
     if (settings.showGrid && settings.gridSize > 0.0f) {
         float zoom = camera.getZoom();
-        
+
         if (settings.autoGridScale) {
             float targetSnap = 100.0f / zoom;
             float magnitude = std::pow(10.0f, std::floor(std::log10(targetSnap)));
             float normalized = targetSnap / magnitude;
-            
+
             // Використовуємо 1, 2, 5, 10 щоб сітка маштабувалась кратно (subdivisions)
             if (normalized < 2.0f) settings.gridSize = 1.0f * magnitude;
             else if (normalized < 5.0f) settings.gridSize = 2.0f * magnitude;
             else if (normalized < 10.0f) settings.gridSize = 5.0f * magnitude;
             else settings.gridSize = 10.0f * magnitude;
         }
-        
+
         float snap = settings.gridSize;
         float scaledSnap = snap * zoom;
 
         // Запобігаємо малюванню мільйонів ліній якщо сітка занадто дрібна
-        if (scaledSnap < Config::GRID_MIN_PIXEL_SIZE) scaledSnap = Config::GRID_MIN_PIXEL_SIZE; 
+        if (scaledSnap < Config::GRID_MIN_PIXEL_SIZE) scaledSnap = Config::GRID_MIN_PIXEL_SIZE;
 
         // Координати вікна
         float minX = cursorPos.x;
@@ -138,7 +139,7 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         float maxY = cursorPos.y + avail.y;
 
         ImU32 gridColor = Config::GRID_LINE_COLOR;
-        
+
         // Вертикальні лінії (вирівняні по globalOrigin)
         int startX_idx = std::ceil((minX - globalOriginX) / scaledSnap);
         for (float x = globalOriginX + startX_idx * scaledSnap; x <= maxX; x += scaledSnap) {
@@ -150,7 +151,7 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         for (float y = globalOriginY + startY_idx * scaledSnap; y <= maxY; y += scaledSnap) {
             drawList->AddLine(ImVec2(minX, y), ImVec2(maxX, y), gridColor);
         }
-        
+
         // Виділення осей (X=0, Y=0)
         ImU32 axisColor = Config::AXIS_X_COLOR;
         if (globalOriginX >= minX && globalOriginX <= maxX)
@@ -181,6 +182,21 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             curr = curr->getParent();
         }
 
+        // Clipping: дочірній шар обрізається по межах батьківського (якщо той ITransformable)
+        bool clipPushed = false;
+        if (entry.parent && entry.parent->getEffect() && entry.parent->getEffect()->getTransformable()) {
+            auto pt = entry.parent->getEffect()->getTransformable();
+            float pAbsX = 0.0f, pAbsY = 0.0f;
+            for (Layer* pc = entry.parent; pc; pc = pc->getParent()) {
+                auto t = pc->getEffect() ? pc->getEffect()->getTransformable() : nullptr;
+                if (t) { pAbsX += t->getX(); pAbsY += t->getY(); }
+            }
+            ImVec2 cMin(globalOriginX + pAbsX * zoom, globalOriginY + pAbsY * zoom);
+            ImVec2 cMax(cMin.x + pt->getWidth() * zoom, cMin.y + pt->getHeight() * zoom);
+            drawList->PushClipRect(cMin, cMax, true);
+            clipPushed = true;
+        }
+
         // --- OverlayEffect (зображення) ---
         auto overlay = dynamic_cast<OverlayEffect*>(effect);
         if (overlay && overlay->hasImage()) {
@@ -190,7 +206,7 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
                 float ly = globalOriginY + absY * zoom;
                 float lw = tr->getWidth() * zoom;
                 float lh = tr->getHeight() * zoom;
-                const Texture* proxy = overlay->getProxyTexture();
+                const Texture* proxy = overlay->getDisplayTexture();
                 if (proxy && proxy->isValid()) {
                     ImU32 tint = IM_COL32(255, 255, 255, static_cast<int>(overlay->getOpacity() * absOpacity * 255.0f));
                     drawList->AddImage(
@@ -258,6 +274,26 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             ImFont* font = ImGui::GetFont();
             drawList->AddText(font, fontSize, ImVec2(tx, ty), textCol, textEffect->getText().c_str());
         }
+
+        // --- ShaderLayerEffect (живий шейдер у власному FBO) ---
+        auto shaderEffect = dynamic_cast<ShaderLayerEffect*>(effect);
+        if (shaderEffect) {
+            auto str = shaderEffect->getTransformable();
+            float sx = globalOriginX + absX * zoom;
+            float sy = globalOriginY + absY * zoom;
+            float sw = str->getWidth() * zoom;
+            float sh = str->getHeight() * zoom;
+            unsigned int texId = shaderEffect->renderAndGetTexture(static_cast<float>(ImGui::GetTime()), absOpacity);
+            if (texId != 0) {
+                ImU32 tint = IM_COL32(255, 255, 255, 255);  // прозорість запечена в альфу шейдера
+                // FBO-текстура має початок у нижньому лівому куті → перевертаємо V
+                drawList->AddImage((ImTextureID)(intptr_t)texId,
+                    ImVec2(sx, sy), ImVec2(sx + sw, sy + sh),
+                    ImVec2(0, 1), ImVec2(1, 0), tint);
+            }
+        }
+
+        if (clipPushed) drawList->PopClipRect();
     }
 
     // ===== РАМКИ ВИДІЛЕНИХ ШАРІВ (multi-select) =====
@@ -287,18 +323,22 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         }
     }
 
-    // ===== ТРАНСФОРМАЦІЙНІ РУЧКИ (FREE TRANSFORM, основний вибраний шар) =====
-    int selIdx = layerStack.getSelectedIndex();
-    if (selIdx >= 0 && selIdx < layerStack.getLayerCount()) {
-        auto layer = layerStack.getLayer(selIdx);
-        auto transformable = layer->getEffect() ? layer->getEffect()->getTransformable() : nullptr;
+    // ===== ТРАНСФОРМАЦІЙНІ РУЧКИ (FREE TRANSFORM, вибраний вузол будь-якого рівня) =====
+    Layer* selLayer = layerStack.getSelectedLayer();
+    if (selLayer && selLayer->isEnabled() && selLayer->getEffect()) {
+        auto transformable = selLayer->getEffect()->getTransformable();
         if (transformable) {
+            // Абсолютна позиція (підйом по дереву батьків)
+            float absX = 0.0f, absY = 0.0f;
+            for (Layer* c = selLayer; c; c = c->getParent()) {
+                auto t = c->getEffect() ? c->getEffect()->getTransformable() : nullptr;
+                if (t) { absX += t->getX(); absY += t->getY(); }
+            }
+
             float layerW = transformable->getWidth() * zoom;
             float layerH = transformable->getHeight() * zoom;
-            float layerX = globalOriginX + transformable->getX() * zoom;
-            float layerY = globalOriginY + transformable->getY() * zoom;
-
-            auto overlay = dynamic_cast<OverlayEffect*>(layer->getEffect());
+            float layerX = globalOriginX + absX * zoom;
+            float layerY = globalOriginY + absY * zoom;
 
             ImU32 handleCol = Config::HANDLE_COLOR;
             drawList->AddRect(ImVec2(layerX, layerY), ImVec2(layerX + layerW, layerY + layerH), handleCol, 0.0f, 0, Config::HANDLE_BORDER_WIDTH);
@@ -307,217 +347,157 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             ImVec2 tr(layerX + layerW, layerY);
             ImVec2 bl(layerX, layerY + layerH);
             ImVec2 br(layerX + layerW, layerY + layerH);
-
             float r = Config::HANDLE_RADIUS;
-
             drawList->AddCircleFilled(tl, r, handleCol);
             drawList->AddCircleFilled(tr, r, handleCol);
             drawList->AddCircleFilled(bl, r, handleCol);
             drawList->AddCircleFilled(br, r, handleCol);
-            
-            // --- Обробка взаємодії мишею ---
-            ImVec2 mousePos = ImGui::GetMousePos();
 
+            ImVec2 mousePos = ImGui::GetMousePos();
             auto checkHover = [&](ImVec2 pos) {
                 float dx = mousePos.x - pos.x;
                 float dy = mousePos.y - pos.y;
                 return (dx * dx + dy * dy) <= r * r * 4.0f;
             };
 
-            if (!m_isPanning && isHovered) {
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    if (checkHover(tl)) m_dragState = DragState::ScaleTopLeft;
-                    else if (checkHover(tr)) m_dragState = DragState::ScaleTopRight;
-                    else if (checkHover(bl)) m_dragState = DragState::ScaleBottomLeft;
-                    else if (checkHover(br)) m_dragState = DragState::ScaleBottomRight;
-                    else if (mousePos.x >= layerX && mousePos.x <= layerX + layerW &&
-                             mousePos.y >= layerY && mousePos.y <= layerY + layerH) {
-                        m_dragState = DragState::Move;
-                    } else {
-                        m_dragState = DragState::None;
-                    }
+            // Початок перетягування
+            if (!m_isPanning && isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                if (checkHover(tl)) m_dragState = DragState::ScaleTopLeft;
+                else if (checkHover(tr)) m_dragState = DragState::ScaleTopRight;
+                else if (checkHover(bl)) m_dragState = DragState::ScaleBottomLeft;
+                else if (checkHover(br)) m_dragState = DragState::ScaleBottomRight;
+                else if (mousePos.x >= layerX && mousePos.x <= layerX + layerW &&
+                         mousePos.y >= layerY && mousePos.y <= layerY + layerH)
+                    m_dragState = DragState::Move;
+                else m_dragState = DragState::None;
 
-                    if (m_dragState != DragState::None) {
-                        m_dragStartMouse = mousePos;
-                        m_dragData.clear();
-                        
-                        if (m_dragState == DragState::Move) {
-                            for (int si : layerStack.getSelectedIndices()) {
-                                auto l = layerStack.getLayer(si);
-                                if (l && l->getEffect() && l->getEffect()->getTransformable()) {
-                                    auto tr = l->getEffect()->getTransformable();
-                                    DragStateData d;
-                                    d.startX = tr->getX();
-                                    d.startY = tr->getY();
-                                    d.oldState = l->clone();
-                                    m_dragData[si] = std::move(d);
-                                    
-                                    auto ov = dynamic_cast<OverlayEffect*>(l->getEffect());
-                                    if (ov) ov->setHiddenFromStack(true);
-                                }
-                            }
-                        } else {
-                            DragStateData d;
-                            d.startX = transformable->getX();
-                            d.startY = transformable->getY();
-                            d.startWidth = transformable->getWidth();
-                            d.oldState = layer->clone();
-                            m_dragData[selIdx] = std::move(d);
-                            
-                            if (overlay) overlay->setHiddenFromStack(true);
-                        }
-                        layerStack.setDirty(true);
-                    }
+                if (m_dragState != DragState::None) {
+                    m_dragStartMouse = mousePos;
+                    m_dragLayer = selLayer;
+                    m_dragStartX = transformable->getX();
+                    m_dragStartY = transformable->getY();
+                    m_dragStartWidth = transformable->getWidth();
+                    m_dragRootIndex = layerStack.rootIndexOf(selLayer);
+                    Layer* rootAnc = layerStack.getLayer(m_dragRootIndex);
+                    m_dragOldRoot = rootAnc ? rootAnc->clone() : nullptr;
+                    auto ov = dynamic_cast<OverlayEffect*>(selLayer->getEffect());
+                    if (ov) ov->setHiddenFromStack(true);
                 }
             }
 
+            // Завершення перетягування → запис в історію
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
-                if (m_dragState != DragState::None) {
-                    for (auto& pair : m_dragData) {
-                        int si = pair.first;
-                        auto l = layerStack.getLayer(si);
-                        if (l) {
-                            auto ov = dynamic_cast<OverlayEffect*>(l->getEffect());
-                            if (ov) ov->setHiddenFromStack(false);
-                            if (pair.second.oldState) {
-                                history.push(std::make_unique<ChangeLayerCommand>(si, std::move(pair.second.oldState), l->clone()));
-                            }
-                        }
+                if (m_dragState != DragState::None && m_dragLayer) {
+                    auto ov = dynamic_cast<OverlayEffect*>(m_dragLayer->getEffect());
+                    if (ov) ov->setHiddenFromStack(false);
+                    Layer* rootAnc = layerStack.getLayer(m_dragRootIndex);
+                    if (m_dragOldRoot && rootAnc) {
+                        history.push(std::make_unique<ChangeLayerCommand>(
+                            m_dragRootIndex, std::move(m_dragOldRoot), rootAnc->clone()));
                     }
-                    m_dragData.clear();
+                    m_dragOldRoot = nullptr;
+                    m_dragLayer = nullptr;
                     layerStack.setDirty(true);
                 }
                 m_dragState = DragState::None;
             }
 
-            if (m_dragState != DragState::None && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                float deltaX = mousePos.x - m_dragStartMouse.x;
-                float deltaY = mousePos.y - m_dragStartMouse.y;
+            // Власне рух / масштаб
+            if (m_dragState != DragState::None && m_dragLayer &&
+                ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+                auto tr2 = m_dragLayer->getEffect()->getTransformable();
+                if (tr2) {
+                    float deltaX = mousePos.x - m_dragStartMouse.x;
+                    float deltaY = mousePos.y - m_dragStartMouse.y;
+                    auto applySnapping = [&](float& val) {
+                        if (settings.snapToGrid && settings.gridSize > 0.0f)
+                            val = std::round(val / settings.gridSize) * settings.gridSize;
+                    };
 
-                auto applySnapping = [&](float& val) {
-                    if (settings.snapToGrid && settings.gridSize > 0.0f) {
-                        val = std::round(val / settings.gridSize) * settings.gridSize;
-                    }
-                };
-
-                if (m_dragState == DragState::Move) {
-                    for (int si : layerStack.getSelectedIndices()) {
-                        auto it = m_dragData.find(si);
-                        if (it == m_dragData.end()) continue;
-                        
-                        auto l = layerStack.getLayer(si);
-                        if (!l) continue;
-                        auto tr = l->getEffect() ? l->getEffect()->getTransformable() : nullptr;
-                        if (!tr) continue;
-
-                        float newX = it->second.startX + deltaX / camera.getZoom();
-                        float newY = it->second.startY + deltaY / camera.getZoom();
+                    if (m_dragState == DragState::Move) {
+                        float newX = m_dragStartX + deltaX / zoom;
+                        float newY = m_dragStartY + deltaY / zoom;
                         applySnapping(newX);
                         applySnapping(newY);
-                        
-                        tr->setPosition(newX, newY);
-                        if (l->getEffect()->isVector()) layerStack.setDirty(true);
-                    }
-                } else {
-                    auto it = m_dragData.find(selIdx);
-                    if (it != m_dragData.end()) {
+                        tr2->setPosition(newX, newY);
+                    } else {
                         ImVec2 oppCorner;
                         if (m_dragState == DragState::ScaleTopLeft) oppCorner = br;
                         else if (m_dragState == DragState::ScaleTopRight) oppCorner = bl;
                         else if (m_dragState == DragState::ScaleBottomLeft) oppCorner = tr;
-                        else if (m_dragState == DragState::ScaleBottomRight) oppCorner = tl;
-                        
-                        float newDistX = std::abs(mousePos.x - oppCorner.x);
-                        float newWidth = newDistX / camera.getZoom();
-                        if (newWidth < 1.0f) newWidth = 1.0f;
-                        
-                        applySnapping(newWidth);
-                        
-                        // Зберігаємо пропорції
-                        float aspectRatio = transformable->getHeight() / transformable->getWidth();
-                        float newHeight = newWidth * aspectRatio;
+                        else oppCorner = tl;
 
-                        // Компенсація Offset
-                        float newX = it->second.startX;
-                        float newY = it->second.startY;
-                        float startScale = it->second.startWidth;
-                        
+                        float newWidth = std::abs(mousePos.x - oppCorner.x) / zoom;
+                        if (newWidth < 1.0f) newWidth = 1.0f;
+                        applySnapping(newWidth);
+
+                        float curW = transformable->getWidth();
+                        float aspect = (curW > 0.0001f) ? transformable->getHeight() / curW : 1.0f;
+                        float newHeight = newWidth * aspect;
+
+                        float newX = m_dragStartX;
+                        float newY = m_dragStartY;
+                        float startW = m_dragStartWidth;
                         if (m_dragState == DragState::ScaleTopLeft) {
-                            newX -= (newWidth - startScale);
-                            newY -= (newHeight - (startScale * aspectRatio));
+                            newX -= (newWidth - startW);
+                            newY -= (newHeight - startW * aspect);
                         } else if (m_dragState == DragState::ScaleBottomLeft) {
-                            newX -= (newWidth - startScale);
+                            newX -= (newWidth - startW);
                         } else if (m_dragState == DragState::ScaleTopRight) {
-                            newY -= (newHeight - (startScale * aspectRatio));
+                            newY -= (newHeight - startW * aspect);
                         }
-                        
                         applySnapping(newX);
                         applySnapping(newY);
 
-                        transformable->setPosition(newX, newY);
-                        transformable->setSize(newWidth, newHeight);
-
-                        if (layer->getEffect()->isVector()) layerStack.setDirty(true);
+                        tr2->setPosition(newX, newY);
+                        tr2->setSize(newWidth, newHeight);
                     }
                 }
-            } // кінець if (m_isDragging)
-        } // кінець if (transformable)
-    } // кінець if (selIdx)
+            }
+        }
+    }
 
     // ===== КЛІК-ДЛЯ-ВИБОРУ / ДЕСЕЛЕКТ / MULTI-SELECT =====
     if (!m_isPanning && isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && m_dragState == DragState::None) {
         ImVec2 mousePos = ImGui::GetMousePos();
         bool shiftHeld = ImGui::GetIO().KeyShift;
         bool hitLayer = false;
-        
-        auto flatTree = layerStack.flattenTree();
-        for (int fi = static_cast<int>(flatTree.size()) - 1; fi >= 0; --fi) {
-            auto l = flatTree[fi].layer;
-            int li = flatTree[fi].rootIndex; // We should probably use rootIndex if it's top level, but for selection it's easier. Actually flattenTree doesn't easily give flat index for selection. We need a way to select correctly.
-            // Wait, selection in LayerStack operates on the flat index? NO! Selection operates on the ROOT indices currently!
-            // Wait, does selection operate on root indices or flat indices?
-            // "std::set<int> m_selectedIndices; // Multi-select (root indices)"
-            // So we can only select root layers currently?
-            // "int rootIndex; // Індекс у root масиві"
+
+        auto clickTree = layerStack.flattenTree();
+        // Зверху вниз (верхні шари мають пріоритет на клік)
+        for (int fi = static_cast<int>(clickTree.size()) - 1; fi >= 0; --fi) {
+            auto l = clickTree[fi].layer;
             if (!l || !l->isEnabled()) continue;
             auto tr = l->getEffect() ? l->getEffect()->getTransformable() : nullptr;
-            if (tr) {
-                float absX = 0.0f;
-                float absY = 0.0f;
-                Layer* curr = l;
-                while (curr) {
-                    if (curr->getEffect() && curr->getEffect()->getTransformable()) {
-                        absX += curr->getEffect()->getTransformable()->getX();
-                        absY += curr->getEffect()->getTransformable()->getY();
-                    }
-                    curr = curr->getParent();
-                }
+            if (!tr) continue;
 
-                float lx = globalOriginX + absX * zoom;
-                float ly = globalOriginY + absY * zoom;
-                float lw = tr->getWidth() * zoom;
-                float lh = tr->getHeight() * zoom;
-                if (mousePos.x >= lx && mousePos.x <= lx + lw &&
-                    mousePos.y >= ly && mousePos.y <= ly + lh) {
-                    
-                    // We only select root index for now
-                    int selectIdx = flatTree[fi].rootIndex;
-
-                    if (shiftHeld) {
-                        layerStack.toggleSelection(selectIdx);
-                    } else {
-                        layerStack.clearSelection();
-                        layerStack.setSelectedIndex(selectIdx);
-                        layerStack.addToSelection(selectIdx);
-                    }
-                    hitLayer = true;
-                    break;
+            float absX = 0.0f, absY = 0.0f;
+            for (Layer* c = l; c; c = c->getParent()) {
+                auto t = c->getEffect() ? c->getEffect()->getTransformable() : nullptr;
+                if (t) { absX += t->getX(); absY += t->getY(); }
+            }
+            float lx = globalOriginX + absX * zoom;
+            float ly = globalOriginY + absY * zoom;
+            float lw = tr->getWidth() * zoom;
+            float lh = tr->getHeight() * zoom;
+            if (mousePos.x >= lx && mousePos.x <= lx + lw &&
+                mousePos.y >= ly && mousePos.y <= ly + lh) {
+                int rootIdx = clickTree[fi].rootIndex;
+                if (shiftHeld && clickTree[fi].depth == 0) {
+                    layerStack.toggleSelection(rootIdx);
+                    layerStack.setSelectedLayer(l);
+                } else {
+                    layerStack.clearSelection();
+                    layerStack.setSelectedIndex(rootIdx);
+                    layerStack.addToSelection(rootIdx);
+                    layerStack.setSelectedLayer(l);  // вибираємо саме цей вузол (можливо дочірній)
                 }
+                hitLayer = true;
+                break;
             }
         }
         if (!hitLayer) {
             layerStack.clearSelection();
-            layerStack.setSelectedIndex(-1);
         }
     }
 

@@ -16,8 +16,7 @@ bool PropertiesPanel::render(LayerStack& stack, AppSettings& settings)
 
     ImGui::Begin("Properties", &isOpen);
 
-    int selected = stack.getSelectedIndex();
-    Layer* layer = stack.getLayer(selected);
+    Layer* layer = stack.getSelectedLayer();
 
     if (!layer) {
         // Коли нічого не вибрано — показуємо повідомлення

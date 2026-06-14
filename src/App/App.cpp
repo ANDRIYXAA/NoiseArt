@@ -308,9 +308,8 @@ void App::renderUI()
 
     // Панель властивостей вибраного шару
     if (m_propertiesPanel.render(m_layerStack, m_settings)) {
-        if (m_layerStack.getSelectedIndex() >= 0 && m_layerStack.getLayer(m_layerStack.getSelectedIndex())->getEffect()->isVector()) {
-            m_layerStack.setDirty(true);
-        }
+        // Будь-яка зміна параметрів → перерахувати (фільтри фото тощо)
+        m_layerStack.setDirty(true);
     }
 
     // Панель налаштувань
@@ -324,8 +323,26 @@ void App::updateProcessing()
 {
     if (!m_layerStack.isDirty()) return;
 
-    // У новому режимі кожен шар рендериться незалежно у viewport.
-    // Тут ми просто скидаємо dirty флаг.
+    // Модель "контент своєї групи": для кожного фото-шару застосовуємо його
+    // дочірні растрові фільтри (Noise, Blur, Invert тощо) до пікселів фото.
+    auto flat = m_layerStack.flattenTree();
+    for (auto& e : flat) {
+        if (!e.layer || !e.layer->getEffect()) continue;
+        auto ov = dynamic_cast<OverlayEffect*>(e.layer->getEffect());
+        if (!ov) continue;
+
+        std::vector<Effect*> filters;
+        for (auto& child : e.layer->getChildren()) {
+            if (!child || !child->isEnabled()) continue;
+            Effect* ce = child->getEffect();
+            // Растровий фільтр = не вектор, не шейдер, не інше фото
+            if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce)) {
+                filters.push_back(ce);
+            }
+        }
+        ov->applyFilters(filters);
+    }
+
     m_layerStack.setDirty(false);
 }
 
@@ -432,6 +449,10 @@ void App::endFrame()
 // ============================================================================
 void App::shutdown()
 {
+    // Звільняємо GPU-ресурси шарів та історії ПОКИ OpenGL контекст ще живий
+    m_history.clear();
+    m_layerStack.clear();
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();

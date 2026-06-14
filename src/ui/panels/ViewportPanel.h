@@ -32,13 +32,13 @@ private:
     DragState m_dragState = DragState::None;
     ImVec2 m_dragStartMouse;
     
-    struct DragStateData {
-        float startX = 0.0f;
-        float startY = 0.0f;
-        float startWidth = 1.0f;
-        std::unique_ptr<Layer> oldState;
-    };
-    std::unordered_map<int, DragStateData> m_dragData;
+    // Перетягування поточного вибраного шару (будь-який вузол дерева)
+    Layer* m_dragLayer = nullptr;
+    int m_dragRootIndex = -1;
+    float m_dragStartX = 0.0f;
+    float m_dragStartY = 0.0f;
+    float m_dragStartWidth = 1.0f;
+    std::unique_ptr<Layer> m_dragOldRoot;
 };
 
 } // namespace NoiseArt

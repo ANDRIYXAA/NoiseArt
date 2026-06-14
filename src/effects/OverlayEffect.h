@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <string>
 #include <memory>
+#include <vector>
+#include <cstring>
 
 namespace NoiseArt {
 
@@ -195,6 +197,30 @@ public:
     void setHiddenFromStack(bool h) { m_isHiddenFromStack = h; }
 
     const Texture* getProxyTexture() const { return m_image ? m_image->texture.get() : nullptr; }
+
+    // Текстура для показу: оброблена фільтрами (якщо є) або оригінал
+    const Texture* getDisplayTexture() const {
+        if (m_processed && m_processed->isValid()) return m_processed.get();
+        return m_image ? m_image->texture.get() : nullptr;
+    }
+
+    // Застосовує ланцюжок дочірніх растрових фільтрів до пікселів фото (модель "контент своєї групи")
+    void applyFilters(const std::vector<Effect*>& filters) {
+        if (!m_image || !m_image->pixels || filters.empty()) { m_processed.reset(); return; }
+        Image img;
+        img.create(m_image->w, m_image->h, 4);
+        std::memcpy(img.getData(), m_image->pixels.get(),
+                    static_cast<size_t>(m_image->w) * m_image->h * 4);
+        for (Effect* f : filters) {
+            if (!f) continue;
+            Image out;
+            f->apply(img, out);
+            img = std::move(out);
+        }
+        if (!m_processed) m_processed = std::make_shared<Texture>();
+        m_processed->update(img);
+    }
+
     float getOpacity() const { return m_opacity; }
 
 private:
@@ -213,6 +239,7 @@ private:
     int m_offsetY = 0;
     
     std::shared_ptr<SharedImage> m_image;
+    std::shared_ptr<Texture> m_processed;   // кеш: фото, оброблене дочірніми фільтрами
     std::string m_overlayPath = "";
 
     bool m_isHiddenFromStack = false;

@@ -52,6 +52,7 @@ bool LayersPanel::render(LayerStack& stack)
         }
         if (ImGui::MenuItem("Circle")) {
             auto effect = std::make_unique<VectorLayerEffect>();
+            effect->setShapeType(VectorLayerEffect::ShapeType::Circle);
             auto layer = std::make_unique<Layer>(std::move(effect), "Circle");
             stack.addLayer(std::move(layer));
             stack.setDirty(true);
@@ -112,15 +113,15 @@ bool LayersPanel::render(LayerStack& stack)
     }
     ImGui::SameLine();
 
-    // Стрілки вверх/вниз
-    if (ImGui::ArrowButton("up", ImGuiDir_Up) && selected > 0) {
-        stack.moveLayer(selected, selected - 1);
+    // Стрілки вверх/вниз — переставляють вибраний вузол серед сусідів (root або child)
+    Layer* selLayer = stack.getSelectedLayer();
+    if (ImGui::ArrowButton("up", ImGuiDir_Up) && selLayer) {
+        stack.moveLayerInParent(selLayer, -1);
         changed = true;
     }
     ImGui::SameLine();
-    if (ImGui::ArrowButton("down", ImGuiDir_Down) &&
-        selected >= 0 && selected < stack.getLayerCount() - 1) {
-        stack.moveLayer(selected, selected + 1);
+    if (ImGui::ArrowButton("down", ImGuiDir_Down) && selLayer) {
+        stack.moveLayerInParent(selLayer, +1);
         changed = true;
     }
 
@@ -166,11 +167,9 @@ bool LayersPanel::render(LayerStack& stack)
 
         // --- Визначаємо чи шар виділений ---
         bool isRootLevel = (entry.depth == 0);
-        bool isSelected = false;
-        if (isRootLevel) {
-            isSelected = stack.isSelected(entry.rootIndex) ||
-                         (entry.rootIndex == stack.getSelectedIndex());
-        }
+        bool isPrimary = (layer == stack.getSelectedLayer());
+        bool inMultiSet = isRootLevel && stack.isSelected(entry.rootIndex);
+        bool isSelected = isPrimary || inMultiSet;
 
         // --- Вибір шару (Selectable) ---
         char label[128];
@@ -181,64 +180,56 @@ bool LayersPanel::render(LayerStack& stack)
             layer->getName().c_str(),
             BlendModeNames[static_cast<int>(layer->getBlendMode())]);
 
-        // Колір виділення: жовтий для multi-select, синій для single
-        if (isSelected && stack.getSelectionCount() > 1) {
+        // Колір виділення: жовтий для multi-select
+        bool multiHighlight = inMultiSet && stack.getSelectionCount() > 1;
+        if (multiHighlight) {
             ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.6f, 0.5f, 0.0f, 0.5f));
         }
 
         if (ImGui::Selectable(label, isSelected)) {
-            if (isRootLevel) {
-                bool shiftHeld = ImGui::GetIO().KeyShift;
-                if (shiftHeld) {
-                    // Shift+Click → multi-select toggle
-                    stack.toggleSelection(entry.rootIndex);
-                } else {
-                    // Normal click
-                    if (isSelected && stack.getSelectionCount() <= 1) {
-                        // Re-click → deselect
-                        stack.clearSelection();
-                        stack.setSelectedIndex(-1);
-                    } else {
-                        // Select this one only
-                        stack.clearSelection();
-                        stack.setSelectedIndex(entry.rootIndex);
-                        stack.addToSelection(entry.rootIndex);
-                    }
-                }
+            bool shiftHeld = ImGui::GetIO().KeyShift;
+            if (shiftHeld && isRootLevel) {
+                // Shift+Click на кореневому → multi-select toggle
+                stack.toggleSelection(entry.rootIndex);
+                stack.setSelectedLayer(layer);
+            } else if (isPrimary && stack.getSelectionCount() <= 1) {
+                // Re-click → deselect
+                stack.clearSelection();
+            } else {
+                // Вибір цього вузла (root або child)
+                stack.clearSelection();
+                stack.setSelectedIndex(entry.rootIndex);
+                stack.addToSelection(entry.rootIndex);
+                stack.setSelectedLayer(layer);
             }
         }
 
-        if (isSelected && stack.getSelectionCount() > 1) {
+        if (multiHighlight) {
             ImGui::PopStyleColor();
         }
 
         // --- Drag Source (для перетягування) ---
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-            LayerDragPayload payload = { entry.rootIndex, entry.childIndex };
-            ImGui::SetDragDropPayload("LAYER_DND", &payload, sizeof(LayerDragPayload));
+            Layer* dragLayer = layer;
+            ImGui::SetDragDropPayload("LAYER_DND", &dragLayer, sizeof(Layer*));
             ImGui::Text("Move: %s", layer->getName().c_str());
             ImGui::EndDragDropSource();
         }
 
-        // --- Drop Target (для reorder та nesting) ---
-        if (isRootLevel && ImGui::BeginDragDropTarget()) {
-            // Drop для nesting (всередину шару)
+        // --- Drop Target: вкласти перетягнутий шар у цей (будь-який вузол) ---
+        if (ImGui::BeginDragDropTarget()) {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LAYER_DND")) {
-                const auto* p = (const LayerDragPayload*)payload->Data;
-                if (p->childIdx == -1) { // Тільки кореневі шари можна вкладати
-                    int srcIdx = p->rootIdx;
-                    int dstIdx = entry.rootIndex;
-                    if (srcIdx != dstIdx) {
-                        stack.nestLayer(srcIdx, dstIdx);
-                        changed = true;
-                    }
+                Layer* moving = *(Layer* const*)payload->Data;
+                if (moving && moving != layer) {
+                    stack.nestUnder(moving, layer);
+                    changed = true;
                 }
             }
             ImGui::EndDragDropTarget();
         }
 
         // --- Opacity та Blend Mode (для виділеного шару) ---
-        if (isSelected && isRootLevel && stack.getSelectionCount() <= 1) {
+        if (isPrimary && stack.getSelectionCount() <= 1) {
             float opacity = layer->getOpacity() * 100.0f;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             ImGui::SliderFloat("##opacity", &opacity, 0.0f, 100.0f, "Opacity: %.0f%%");
@@ -265,18 +256,9 @@ bool LayersPanel::render(LayerStack& stack)
     ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 30));
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LAYER_DND")) {
-            const auto* p = (const LayerDragPayload*)payload->Data;
-            if (p->childIdx == -1) {
-                // Move root layer to bottom
-                if (p->rootIdx > 0) {
-                    stack.moveLayer(p->rootIdx, 0);
-                    changed = true;
-                }
-            } else {
-                // Unnest child layer to root
-                stack.unnestLayer(p->rootIdx, p->childIdx);
-                changed = true;
-            }
+            Layer* moving = *(Layer* const*)payload->Data;
+            stack.moveToRoot(moving);  // винести на кореневий рівень
+            changed = true;
         }
         ImGui::EndDragDropTarget();
     }

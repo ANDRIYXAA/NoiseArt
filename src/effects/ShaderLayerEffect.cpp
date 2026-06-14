@@ -23,6 +23,7 @@ uniform vec2 u_resolution;
 uniform float u_scale;
 uniform float u_speed;
 uniform vec3 u_color;
+uniform float u_opacity;
 
 void main() {
     vec2 uv = TexCoords * u_scale;
@@ -38,7 +39,7 @@ void main() {
     float g = sin(v * 3.1415 + 2.0) * 0.5 + 0.5;
     float b = sin(v * 3.1415 + 4.0) * 0.5 + 0.5;
     
-    FragColor = vec4(r * u_color.r, g * u_color.g, b * u_color.b, 1.0);
+    FragColor = vec4(r * u_color.r, g * u_color.g, b * u_color.b, u_opacity);
 }
 )";
 
@@ -52,6 +53,7 @@ uniform vec2 u_resolution;
 uniform float u_scale;
 uniform float u_speed;
 uniform vec3 u_color;
+uniform float u_opacity;
 
 // Simple 2D noise
 float random(vec2 st) {
@@ -77,7 +79,7 @@ void main() {
     uv.x += u_time * u_speed;
     
     float n = noise(uv) * 0.5 + 0.5 * noise(uv * 2.0);
-    FragColor = vec4(n * u_color.r, n * u_color.g, n * u_color.b, 1.0);
+    FragColor = vec4(n * u_color.r, n * u_color.g, n * u_color.b, u_opacity);
 }
 )";
 
@@ -135,6 +137,7 @@ void ShaderLayerEffect::renderShader(int width, int height, float time) {
     m_shader->setFloat("u_scale", m_scale);
     m_shader->setFloat("u_speed", m_speed);
     m_shader->setVec3("u_color", glm::vec3(m_color[0], m_color[1], m_color[2]));
+    m_shader->setFloat("u_opacity", m_renderOpacity);
 
     // Enable blending for transparency
     glEnable(GL_BLEND);
@@ -145,6 +148,27 @@ void ShaderLayerEffect::renderShader(int width, int height, float time) {
     glBindVertexArray(0);
 
     m_shader->unbind();
+}
+
+unsigned int ShaderLayerEffect::renderAndGetTexture(float time, float opacity) {
+    m_renderOpacity = opacity;
+    int w = (m_width > 1.0f) ? static_cast<int>(m_width) : 1;
+    int h = (m_height > 1.0f) ? static_cast<int>(m_height) : 1;
+    if (m_renderFbo.getWidth() != static_cast<uint32_t>(w) ||
+        m_renderFbo.getHeight() != static_cast<uint32_t>(h)) {
+        if (m_renderFbo.getWidth() == 0) m_renderFbo.create(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+        else m_renderFbo.resize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    }
+    GLint prevVp[4];
+    glGetIntegerv(GL_VIEWPORT, prevVp);
+    m_renderFbo.bind();
+    glViewport(0, 0, w, h);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    renderShader(w, h, time);
+    m_renderFbo.unbind();
+    glViewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);
+    return m_renderFbo.getColorAttachmentID();
 }
 
 bool ShaderLayerEffect::renderUI() {

@@ -12,18 +12,33 @@
 #include <glad/glad.h>
 #include <string>
 #include <memory>
+#include "nanovg.h"
 
 // ===== Наші модулі =====
 #include "core/Image.h"
 #include "core/LayerStack.h"
+#include "renderer/Framebuffer.h"
+#include "core/Camera2D.h"
+#include "core/History.h"
 #include "effects/EffectRegistry.h"
 #include "renderer/Texture.h"
 #include "ui/panels/ViewportPanel.h"
 #include "ui/panels/LayersPanel.h"
 #include "ui/panels/EffectsPanel.h"
 #include "ui/panels/PropertiesPanel.h"
+#include "ui/panels/SettingsPanel.h"
 
 namespace NoiseArt {
+
+// ============================================================================
+// Глобальні налаштування
+// ============================================================================
+struct AppSettings {
+    bool showGrid = true;
+    bool snapToGrid = false;
+    bool autoGridScale = true;
+    float gridSize = 100.0f;
+};
 
 // ============================================================================
 // Клас App — серце програми
@@ -56,6 +71,9 @@ private:
     int m_windowWidth = 1280;
     int m_windowHeight = 720;
 
+    // ----- Глобальні налаштування -----
+    AppSettings m_settings;
+
     // ----- Дані зображення -----
     Image m_sourceImage;           // Оригінальне зображення
     Image m_resultImage;           // Результат після обробки
@@ -68,11 +86,20 @@ private:
     // ----- Рендеринг -----
     Texture m_resultTexture;       // Текстура для відображення
 
+    // NanoVG and FBO
+    NVGcontext* m_vg = nullptr;
+    Framebuffer m_fbo;
+    Camera2D m_camera;
+    History m_history;
+    
+    void renderCanvasToFBO();
+
     // ----- UI Панелі -----
     ViewportPanel m_viewportPanel;
     LayersPanel m_layersPanel;
     EffectsPanel m_effectsPanel;
     PropertiesPanel m_propertiesPanel;
+    SettingsPanel m_settingsPanel;
 };
 
 } // namespace NoiseArt

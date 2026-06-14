@@ -11,6 +11,11 @@
 // ============================================================================
 
 #include "App/App.h"  // Наш клас App
+#include <SDL3/SDL_main.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // argc (argument count) — кількість аргументів командного рядка
 // argv (argument values) — масив рядків з аргументами
@@ -18,6 +23,11 @@
 // то argc = 2, argv[0] = "NoiseArt.exe", argv[1] = "photo.png"
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+    // Налаштовуємо консоль на UTF-8 для коректного відображення української мови
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+
     // Створюємо єдиний об'єкт застосунку
     NoiseArt::App app;
 

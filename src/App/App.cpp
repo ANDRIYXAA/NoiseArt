@@ -5,6 +5,9 @@
 // ============================================================================
 
 #include "App.h"
+#include <glad/glad.h>
+#define NANOVG_GL3_IMPLEMENTATION
+#include <nanovg_gl.h>
 
 // ImGui
 #include <imgui.h>
@@ -17,6 +20,14 @@
 #include "effects/BlurEffect.h"
 #include "effects/BrightnessContrast.h"
 #include "effects/InvertEffect.h"
+#include "effects/AdjustmentsEffect.h"
+#include "effects/BlockifyEffect.h"
+#include "effects/ThresholdEffect.h"
+#include "effects/TextLayerEffect.h"
+#include "effects/VectorLayerEffect.h"
+#include "effects/ArtboardLayerEffect.h"
+#include "effects/ShaderLayerEffect.h"
+#include "effects/OverlayEffect.h"
 
 // Стандартні бібліотеки
 #include <iostream>
@@ -81,6 +92,29 @@ bool App::init()
               << " завантажено через GLAD" << std::endl;
     std::cout << "     GPU: " << glGetString(GL_RENDERER) << std::endl;
 
+    // ===== NanoVG та FBO =====
+    m_vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
+    if (!m_vg) {
+        std::cerr << "[ПОМИЛКА] Не вдалося ініціалізувати NanoVG!" << std::endl;
+        return false;
+    }
+    m_fbo.create(800, 600);
+
+    // Завантажуємо шрифти для NanoVG (для текстового шару)
+    nvgCreateFont(m_vg, "Inter", "resources/fonts/Inter.ttf");
+    // Системні шрифти Windows
+    nvgCreateFont(m_vg, "Arial", "C:/Windows/Fonts/arial.ttf");
+    nvgCreateFont(m_vg, "Times New Roman", "C:/Windows/Fonts/times.ttf");
+    nvgCreateFont(m_vg, "Courier New", "C:/Windows/Fonts/cour.ttf");
+    nvgCreateFont(m_vg, "Georgia", "C:/Windows/Fonts/georgia.ttf");
+    nvgCreateFont(m_vg, "Verdana", "C:/Windows/Fonts/verdana.ttf");
+    nvgCreateFont(m_vg, "Trebuchet MS", "C:/Windows/Fonts/trebuc.ttf");
+    nvgCreateFont(m_vg, "Impact", "C:/Windows/Fonts/impact.ttf");
+    nvgCreateFont(m_vg, "Comic Sans MS", "C:/Windows/Fonts/comic.ttf");
+    nvgCreateFont(m_vg, "Segoe UI", "C:/Windows/Fonts/segoeui.ttf");
+    nvgCreateFont(m_vg, "Consolas", "C:/Windows/Fonts/consola.ttf");
+    std::cout << "[OK] Шрифти завантажено" << std::endl;
+
     // ===== ImGui =====
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -136,6 +170,13 @@ bool App::init()
     m_registry.registerEffect<InvertEffect>();
     m_registry.registerEffect<BlurEffect>();
     m_registry.registerEffect<BloomEffect>();
+    m_registry.registerEffect<AdjustmentsEffect>();
+    m_registry.registerEffect<BlockifyEffect>();
+    m_registry.registerEffect<ThresholdEffect>();
+    m_registry.registerEffect<TextLayerEffect>();
+    m_registry.registerEffect<VectorLayerEffect>();
+    m_registry.registerEffect<ArtboardLayerEffect>();
+    m_registry.registerEffect<ShaderLayerEffect>();
 
     // ===== Готово! =====
     m_running = true;
@@ -159,10 +200,13 @@ void App::run()
         // PassthruCentralNode — дозволяє панелям "плавати" вільно,
         // як звичайні вікна в ОС. Щоб прикріпити панель — перетягни
         // її до краю вікна (з'явиться синя підсвітка).
-        ImGui::DockSpaceOverViewport(0, ImGuiDockNodeFlags_PassthruCentralNode);
+        ImGui::DockSpaceOverViewport(0, nullptr, ImGuiDockNodeFlags_PassthruCentralNode);
 
         // Меню
         renderMenuBar();
+
+        // Рендеримо вектори у FBO
+        renderCanvasToFBO();
 
         // Панелі
         renderUI();
@@ -222,6 +266,7 @@ void App::renderMenuBar()
             ImGui::MenuItem("Layers", nullptr, &m_layersPanel.isOpen);
             ImGui::MenuItem("Effects", nullptr, &m_effectsPanel.isOpen);
             ImGui::MenuItem("Properties", nullptr, &m_propertiesPanel.isOpen);
+            ImGui::MenuItem("Settings", nullptr, &m_settingsPanel.isOpen);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {
@@ -249,9 +294,7 @@ void App::renderMenuBar()
 void App::renderUI()
 {
     // Viewport (головний перегляд)
-    std::string fileName = m_imagePath.empty() ? "" : 
-        std::filesystem::path(m_imagePath).filename().string();
-    m_viewportPanel.render(m_resultTexture, fileName);
+    m_viewportPanel.render(m_resultTexture, m_fbo, m_imagePath, m_layerStack, m_camera, m_history, m_settings);
 
     // Панель шарів
     if (m_layersPanel.render(m_layerStack)) {
@@ -263,10 +306,15 @@ void App::renderUI()
         m_layerStack.setDirty();
     }
 
-    // Властивості
-    if (m_propertiesPanel.render(m_layerStack)) {
-        m_layerStack.setDirty();
+    // Панель властивостей вибраного шару
+    if (m_propertiesPanel.render(m_layerStack, m_settings)) {
+        if (m_layerStack.getSelectedIndex() >= 0 && m_layerStack.getLayer(m_layerStack.getSelectedIndex())->getEffect()->isVector()) {
+            m_layerStack.setDirty(true);
+        }
     }
+
+    // Панель налаштувань
+    m_settingsPanel.render(&m_settingsPanel.isOpen, m_settings);
 }
 
 // ============================================================================
@@ -275,26 +323,27 @@ void App::renderUI()
 void App::updateProcessing()
 {
     if (!m_layerStack.isDirty()) return;
-    if (m_sourceImage.isEmpty()) return;
 
-    // Пропускаємо зображення через всі шари
-    m_resultImage = m_layerStack.processAll(m_sourceImage);
-
-    // Оновлюємо текстуру на GPU
-    m_resultTexture.update(m_resultImage);
+    // У новому режимі кожен шар рендериться незалежно у viewport.
+    // Тут ми просто скидаємо dirty флаг.
+    m_layerStack.setDirty(false);
 }
 
 // ============================================================================
-// openImage() — Відкрити зображення
+// openImage() — Відкрити зображення як новий шар
 // ============================================================================
 void App::openImage(const std::string& path)
 {
-    if (m_sourceImage.loadFromFile(path)) {
-        m_imagePath = path;
-        m_resultImage = m_sourceImage.clone();
-        m_resultTexture.createFromImage(m_resultImage);
-        m_layerStack.setDirty();
-        std::cout << "[OK] Зображення відкрито: " << path << std::endl;
+    // Створюємо OverlayEffect
+    auto effect = std::make_unique<OverlayEffect>();
+    if (effect->loadOverlayImage(path)) {
+        auto layer = std::make_unique<Layer>(std::move(effect));
+        layer->setName(std::filesystem::path(path).filename().string());
+        m_layerStack.addLayer(std::move(layer));
+        m_layerStack.setDirty(true);
+        std::cout << "[OK] Зображення відкрито як шар: " << path << std::endl;
+    } else {
+        std::cerr << "[ПОМИЛКА] Не вдалося відкрити: " << path << std::endl;
     }
 }
 
@@ -390,6 +439,47 @@ void App::shutdown()
     if (m_window) SDL_DestroyWindow(m_window);
     SDL_Quit();
     std::cout << "NoiseArt завершено. До зустрічі!" << std::endl;
+}
+
+// ============================================================================
+// renderCanvasToFBO() — Рендеринг векторів
+// ============================================================================
+void App::renderCanvasToFBO()
+{
+    uint32_t vpWidth = static_cast<uint32_t>(m_camera.getViewportWidth());
+    uint32_t vpHeight = static_cast<uint32_t>(m_camera.getViewportHeight());
+    if (vpWidth == 0 || vpHeight == 0) return;
+
+    if (m_fbo.getWidth() != vpWidth || m_fbo.getHeight() != vpHeight) {
+        m_fbo.resize(vpWidth, vpHeight);
+    }
+
+    // Очищуємо FBO
+    m_fbo.bind();
+    glViewport(0, 0, vpWidth, vpHeight);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    nvgBeginFrame(m_vg, vpWidth, vpHeight, 1.0f);
+
+    // Застосовуємо трансформацію камери (Global Coordinates)
+    float zoom = m_camera.getZoom();
+    float imgDrawX = vpWidth * 0.5f + m_camera.getPosition().x;
+    float imgDrawY = vpHeight * 0.5f + m_camera.getPosition().y;
+
+    nvgTranslate(m_vg, imgDrawX, imgDrawY);
+    nvgScale(m_vg, zoom, zoom);
+
+    // Рендеримо всі векторні ефекти
+    for (int i = 0; i < m_layerStack.getLayerCount(); ++i) {
+        auto layer = m_layerStack.getLayer(i);
+        if (layer->isEnabled() && layer->getEffect() && layer->getEffect()->isVector()) {
+            layer->getEffect()->renderVector(m_vg);
+        }
+    }
+
+    nvgEndFrame(m_vg);
+    m_fbo.unbind();
 }
 
 } // namespace NoiseArt

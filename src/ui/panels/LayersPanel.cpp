@@ -98,11 +98,12 @@ bool LayersPanel::render(LayerStack& stack)
 
     ImGui::SameLine();
 
-    // Кнопка "Видалити"
-    if (ImGui::Button("Del") && selected >= 0) {
-        stack.removeLayer(selected);
-        stack.clearSelection();
-        changed = true;
+    // Кнопка "Видалити" — видаляє саме вибраний вузол (root або дитину)
+    if (ImGui::Button("Del")) {
+        if (Layer* sel = stack.getSelectedLayer()) {
+            stack.removeLayerPtr(sel);
+            changed = true;
+        }
     }
     ImGui::SameLine();
 

@@ -354,4 +354,12 @@ void LayerStack::moveLayerInParent(Layer* layer, int delta) {
     }
 }
 
+void LayerStack::removeLayerPtr(Layer* layer) {
+    if (!layer) return;
+    auto owned = detachLayer(layer);  // від'єднуємо від root або батька; знищується при виході зі скоупу
+    (void)owned;
+    clearSelection();
+    m_dirty = true;
+}
+
 } // namespace NoiseArt

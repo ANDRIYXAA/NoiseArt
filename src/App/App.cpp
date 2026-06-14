@@ -335,13 +335,17 @@ void App::updateProcessing()
         auto ve = dynamic_cast<VectorLayerEffect*>(eff);
         if (!ov && !ve) continue;   // фільтри застосовуються до фото та векторів
 
+        // Фільтри: власні дочірні + успадковані від груп-предків (модель "контент своєї групи").
+        // Тобто фільтр, покладений у групу/артборд, діє на весь контент усередині.
         std::vector<std::pair<Effect*, float>> filters;
-        for (auto& child : e.layer->getChildren()) {
-            if (!child || !child->isEnabled()) continue;
-            Effect* ce = child->getEffect();
-            // Растровий фільтр = не вектор, не шейдер, не інше фото
-            if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce)) {
-                filters.push_back({ ce, child->getOpacity() });
+        for (Layer* container = e.layer; container; container = container->getParent()) {
+            for (auto& child : container->getChildren()) {
+                if (!child || !child->isEnabled()) continue;
+                Effect* ce = child->getEffect();
+                // Растровий фільтр = не вектор, не шейдер, не інше фото
+                if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce)) {
+                    filters.push_back({ ce, child->getOpacity() });
+                }
             }
         }
         // Обрізання по формі батька, якщо батько — коло / заокруглений вектор

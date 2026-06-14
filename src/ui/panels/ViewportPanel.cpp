@@ -292,13 +292,15 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             float sw = str->getWidth() * zoom;
             float sh = str->getHeight() * zoom;
 
-            // Растрові фільтри-діти шейдера
+            // Растрові фільтри: власні дочірні + успадковані від груп-предків
             std::vector<std::pair<Effect*, float>> sfilters;
-            for (auto& ch : layer->getChildren()) {
-                if (!ch || !ch->isEnabled()) continue;
-                Effect* ce = ch->getEffect();
-                if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce))
-                    sfilters.push_back({ ce, ch->getOpacity() });
+            for (Layer* container = layer; container; container = container->getParent()) {
+                for (auto& ch : container->getChildren()) {
+                    if (!ch || !ch->isEnabled()) continue;
+                    Effect* ce = ch->getEffect();
+                    if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce))
+                        sfilters.push_back({ ce, ch->getOpacity() });
+                }
             }
             // Обрізання по формі батька (коло / заокруглений вектор)
             ClipShape sclip;

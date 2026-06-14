@@ -118,6 +118,8 @@ public:
     void moveToRoot(Layer* moving);
     /// Переставити шар серед сусідів (delta -1 / +1 у масиві контейнера)
     void moveLayerInParent(Layer* layer, int delta);
+    /// Видалити конкретний шар (будь-який вузол дерева) разом із піддеревом
+    void removeLayerPtr(Layer* layer);
 
     // ===== Dirty flag =====
     

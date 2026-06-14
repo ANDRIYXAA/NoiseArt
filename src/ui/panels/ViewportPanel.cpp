@@ -274,13 +274,22 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         if (textEffect && !textEffect->getText().empty()) {
             float tx = globalOriginX + absX * zoom;
             float ty = globalOriginY + absY * zoom;
-            float fontSize = textEffect->getFontSize() * zoom;
-            const float* tc = textEffect->getTextColor();
             float opacity = absOpacity;
-            ImU32 textCol = IM_COL32(
-                (int)(tc[0]*255), (int)(tc[1]*255), (int)(tc[2]*255), (int)(tc[3]*opacity*255));
-            ImFont* font = ImGui::GetFont();
-            drawList->AddText(font, fontSize, ImVec2(tx, ty), textCol, textEffect->getText().c_str());
+            const Texture* ttex = textEffect->getProcessedTexture();
+            if (ttex) {
+                // Текст, відрендерений NanoVG вибраним шрифтом (+ фільтри/обрізання)
+                float tw = textEffect->getWidth() * zoom;
+                float th = textEffect->getHeight() * zoom;
+                ImU32 tint = IM_COL32(255, 255, 255, static_cast<int>(opacity * 255.0f));
+                drawList->AddImage((ImTextureID)(intptr_t)ttex->getID(),
+                    ImVec2(tx, ty), ImVec2(tx + tw, ty + th), ImVec2(0, 0), ImVec2(1, 1), tint);
+            } else {
+                float fontSize = textEffect->getFontSize() * zoom;
+                const float* tc = textEffect->getTextColor();
+                ImU32 textCol = IM_COL32(
+                    (int)(tc[0]*255), (int)(tc[1]*255), (int)(tc[2]*255), (int)(tc[3]*opacity*255));
+                drawList->AddText(ImGui::GetFont(), fontSize, ImVec2(tx, ty), textCol, textEffect->getText().c_str());
+            }
         }
 
         // --- ShaderLayerEffect (живий шейдер у власному FBO) ---

@@ -1,8 +1,14 @@
 #pragma once
 
 #include "effects/Effect.h"
+#include "renderer/Framebuffer.h"
+#include "renderer/Texture.h"
+#include "effects/ClipShape.h"
 #include <nanovg.h>
 #include <string>
+#include <memory>
+#include <vector>
+#include <utility>
 
 namespace NoiseArt {
 
@@ -38,6 +44,13 @@ public:
     float getFontSize() const { return m_fontSize; }
     const float* getTextColor() const { return m_color; }
 
+    /// Рендерить текст через NanoVG у власний FBO + застосовує фільтри/обрізання → кеш-текстура
+    void rasterizeAndProcess(NVGcontext* vg, const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip);
+    /// Готова текстура тексту (nullptr якщо ще не растеризовано)
+    const Texture* getProcessedTexture() const {
+        return (m_processed && m_processed->isValid()) ? m_processed.get() : nullptr;
+    }
+
     // Список доступних шрифтів (ті ж імена, що зареєстровані в NanoVG)
     static constexpr const char* FontNames[] = {
         "Inter", "Arial", "Times New Roman", "Courier New",
@@ -64,6 +77,11 @@ private:
     
     // Bold/Italic (емуляція через NanoVG)
     bool m_bold = false;
+
+    Framebuffer m_fbo;                      // для рендеру тексту через NanoVG
+    std::shared_ptr<Texture> m_processed;   // кеш растеризованого/обробленого тексту
+    float m_measuredW = 0.0f;               // виміряні розміри (з останньої растеризації)
+    float m_measuredH = 0.0f;
 };
 
 } // namespace NoiseArt

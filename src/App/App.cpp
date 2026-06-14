@@ -333,7 +333,8 @@ void App::updateProcessing()
         Effect* eff = e.layer->getEffect();
         auto ov = dynamic_cast<OverlayEffect*>(eff);
         auto ve = dynamic_cast<VectorLayerEffect*>(eff);
-        if (!ov && !ve) continue;   // фільтри застосовуються до фото та векторів
+        auto te = dynamic_cast<TextLayerEffect*>(eff);
+        if (!ov && !ve && !te) continue;   // обробка для фото, векторів і тексту
 
         // Фільтри: власні дочірні + успадковані від груп-предків (модель "контент своєї групи").
         // Тобто фільтр, покладений у групу/артборд, діє на весь контент усередині.
@@ -364,7 +365,8 @@ void App::updateProcessing()
         }
 
         if (ov) ov->applyFilters(filters, clip);
-        else    ve->applyFilters(filters, clip);
+        else if (ve) ve->applyFilters(filters, clip);
+        else te->rasterizeAndProcess(m_vg, filters, clip);
     }
 
     m_layerStack.setDirty(false);

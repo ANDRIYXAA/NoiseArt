@@ -50,11 +50,12 @@ bool PropertiesPanel::render(LayerStack& stack, AppSettings& settings)
 
     // ===== Opacity =====
     float opacity = layer->getOpacity() * 100.0f;
-    ImGui::SliderFloat("Opacity", &opacity, 0.0f, 100.0f, "%.0f%%");
+    if (ImGui::SliderFloat("Opacity", &opacity, 0.0f, 100.0f, "%.0f%%")) {
+        layer->setOpacity(opacity / 100.0f);  // застосовуємо одразу — повзунок не відскакує
+    }
     if (ImGui::IsItemDeactivatedAfterEdit()) {
-        layer->setOpacity(opacity / 100.0f);
+        stack.setDirty();  // перерахувати фільтри-діти (їхня opacity впливає на фото)
         changed = true;
-        stack.setDirty();
     }
 
     // ===== Blend Mode =====

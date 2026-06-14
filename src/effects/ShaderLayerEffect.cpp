@@ -1,5 +1,8 @@
 #include "ShaderLayerEffect.h"
 #include <imgui.h>
+#include <vector>
+#include <utility>
+#include <cstring>
 
 namespace NoiseArt {
 
@@ -24,9 +27,12 @@ uniform float u_scale;
 uniform float u_speed;
 uniform vec3 u_color;
 uniform float u_opacity;
+uniform float u_stretch;
 
 void main() {
-    vec2 uv = TexCoords * u_scale;
+    vec2 uv = (u_stretch > 0.5)
+        ? TexCoords * u_scale                            // патерн тягнеться разом з рамкою
+        : TexCoords * u_resolution * (u_scale / 256.0);  // сталий розмір клітинок по обох осях
     float time = u_time * u_speed;
     
     float v1 = sin(uv.x + time);
@@ -54,6 +60,7 @@ uniform float u_scale;
 uniform float u_speed;
 uniform vec3 u_color;
 uniform float u_opacity;
+uniform float u_stretch;
 
 // Simple 2D noise
 float random(vec2 st) {
@@ -75,7 +82,9 @@ float noise(vec2 st) {
 }
 
 void main() {
-    vec2 uv = TexCoords * u_scale;
+    vec2 uv = (u_stretch > 0.5)
+        ? TexCoords * u_scale                            // патерн тягнеться разом з рамкою
+        : TexCoords * u_resolution * (u_scale / 256.0);  // сталий розмір клітинок по обох осях
     uv.x += u_time * u_speed;
     
     float n = noise(uv) * 0.5 + 0.5 * noise(uv * 2.0);
@@ -133,15 +142,17 @@ void ShaderLayerEffect::renderShader(int width, int height, float time) {
 
     m_shader->bind();
     m_shader->setFloat("u_time", time);
-    m_shader->setVec2("u_resolution", glm::vec2(width, height));
+    // u_resolution = розмір рамки (для сталого розміру клітинок); u_stretch = режим патерна
+    m_shader->setVec2("u_resolution", glm::vec2(m_width, m_height));
+    m_shader->setFloat("u_stretch", m_stretchPattern ? 1.0f : 0.0f);
     m_shader->setFloat("u_scale", m_scale);
     m_shader->setFloat("u_speed", m_speed);
     m_shader->setVec3("u_color", glm::vec3(m_color[0], m_color[1], m_color[2]));
     m_shader->setFloat("u_opacity", m_renderOpacity);
 
-    // Enable blending for transparency
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Пишемо фрагмент напряму у FBO (без блендингу) — щоб альфа дорівнювала u_opacity,
+    // а не множилась сама на себе. Прозорість застосує вже ImGui при малюванні текстури.
+    glDisable(GL_BLEND);
 
     glBindVertexArray(m_vao);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -150,25 +161,75 @@ void ShaderLayerEffect::renderShader(int width, int height, float time) {
     m_shader->unbind();
 }
 
-unsigned int ShaderLayerEffect::renderAndGetTexture(float time, float opacity) {
+unsigned int ShaderLayerEffect::renderAndGetTexture(float time, float opacity, const ClipShape& clip,
+        const std::vector<std::pair<Effect*, float>>& filters, bool& flipV) {
     m_renderOpacity = opacity;
-    int w = (m_width > 1.0f) ? static_cast<int>(m_width) : 1;
-    int h = (m_height > 1.0f) ? static_cast<int>(m_height) : 1;
-    if (m_renderFbo.getWidth() != static_cast<uint32_t>(w) ||
-        m_renderFbo.getHeight() != static_cast<uint32_t>(h)) {
-        if (m_renderFbo.getWidth() == 0) m_renderFbo.create(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-        else m_renderFbo.resize(static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    // Фіксована роздільність FBO: масштаб робиться при малюванні текстури у viewport.
+    const uint32_t RES = 512;
+    if (m_renderFbo.getWidth() != RES || m_renderFbo.getHeight() != RES) {
+        m_renderFbo.create(RES, RES);
     }
     GLint prevVp[4];
     glGetIntegerv(GL_VIEWPORT, prevVp);
     m_renderFbo.bind();
-    glViewport(0, 0, w, h);
+    glViewport(0, 0, static_cast<int>(RES), static_cast<int>(RES));
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    renderShader(w, h, time);
+    renderShader(static_cast<int>(RES), static_cast<int>(RES), time);
+
+    // Без фільтрів і без обрізання — повертаємо сиру FBO-текстуру (малюється з V-flip)
+    if (filters.empty() && clip.type == ClipShape::None) {
+        m_renderFbo.unbind();
+        glViewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);
+        flipV = true;
+        return m_renderFbo.getColorAttachmentID();
+    }
+
+    // Зчитуємо пікселі з FBO
+    Image img;
+    img.create(static_cast<int>(RES), static_cast<int>(RES), 4);
+    glReadPixels(0, 0, static_cast<int>(RES), static_cast<int>(RES), GL_RGBA, GL_UNSIGNED_BYTE, img.getData());
     m_renderFbo.unbind();
     glViewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);
-    return m_renderFbo.getColorAttachmentID();
+
+    // glReadPixels дає bottom-up → перевертаємо рядки у top-down (як фото/вектор)
+    int W = img.getWidth(), H = img.getHeight();
+    int rowBytes = W * 4;
+    uint8_t* d = img.getData();
+    std::vector<uint8_t> tmp(rowBytes);
+    for (int y = 0; y < H / 2; ++y) {
+        uint8_t* r0 = d + static_cast<size_t>(y) * rowBytes;
+        uint8_t* r1 = d + static_cast<size_t>(H - 1 - y) * rowBytes;
+        std::memcpy(tmp.data(), r0, rowBytes);
+        std::memcpy(r0, r1, rowBytes);
+        std::memcpy(r1, tmp.data(), rowBytes);
+    }
+
+    // Фільтри (як для фото/вектора)
+    for (const auto& pr : filters) {
+        Effect* f = pr.first;
+        float op = pr.second;
+        if (!f || op <= 0.0f) continue;
+        Image res;
+        f->apply(img, res);
+        if (op >= 1.0f || res.getWidth() != img.getWidth() || res.getHeight() != img.getHeight()) {
+            img = std::move(res);
+        } else {
+            uint8_t* a = img.getData();
+            const uint8_t* b = res.getData();
+            int n = img.getWidth() * img.getHeight() * 4;
+            for (int i = 0; i < n; ++i)
+                a[i] = static_cast<uint8_t>(a[i] + op * (static_cast<float>(b[i]) - a[i]));
+        }
+    }
+
+    // Обрізання по формі батька (top-down)
+    applyClipMask(img, clip, getX(), getY(), getWidth(), getHeight());
+
+    if (!m_processed) m_processed = std::make_shared<Texture>();
+    m_processed->update(img);
+    flipV = false;
+    return m_processed->getID();
 }
 
 bool ShaderLayerEffect::renderUI() {
@@ -185,6 +246,7 @@ bool ShaderLayerEffect::renderUI() {
     if (ImGui::DragFloat("Scale", &m_scale, 0.1f, 0.1f, 100.0f)) changed = true;
     if (ImGui::DragFloat("Speed", &m_speed, 0.01f, 0.0f, 10.0f)) changed = true;
     if (ImGui::ColorEdit3("Color", m_color)) changed = true;
+    if (ImGui::Checkbox("Stretch pattern", &m_stretchPattern)) changed = true;
 
     return changed;
 }
@@ -197,6 +259,7 @@ std::unique_ptr<Effect> ShaderLayerEffect::clone() const {
     copy->m_color[0] = m_color[0];
     copy->m_color[1] = m_color[1];
     copy->m_color[2] = m_color[2];
+    copy->m_stretchPattern = m_stretchPattern;
     copy->compileCurrentShader();
     return copy;
 }

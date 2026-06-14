@@ -232,11 +232,12 @@ bool LayersPanel::render(LayerStack& stack)
         if (isPrimary && stack.getSelectionCount() <= 1) {
             float opacity = layer->getOpacity() * 100.0f;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-            ImGui::SliderFloat("##opacity", &opacity, 0.0f, 100.0f, "Opacity: %.0f%%");
+            if (ImGui::SliderFloat("##opacity", &opacity, 0.0f, 100.0f, "Opacity: %.0f%%")) {
+                layer->setOpacity(opacity / 100.0f);  // одразу, без відскоку
+            }
             if (ImGui::IsItemDeactivatedAfterEdit()) {
-                layer->setOpacity(opacity / 100.0f);
+                stack.setDirty();  // перерахувати фільтри-діти
                 changed = true;
-                stack.setDirty();
             }
 
             int blendIdx = static_cast<int>(layer->getBlendMode());

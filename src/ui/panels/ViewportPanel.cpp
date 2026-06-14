@@ -227,37 +227,45 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             float vh = vecEffect->getHeight() * zoom;
             float opacity = absOpacity;
 
-            const float* fc = vecEffect->getFillColor();
-            ImU32 fillCol = IM_COL32(
-                (int)(fc[0]*255), (int)(fc[1]*255), (int)(fc[2]*255), (int)(fc[3]*opacity*255));
-            const float* sc = vecEffect->getStrokeColor();
-            ImU32 strokeCol = IM_COL32(
-                (int)(sc[0]*255), (int)(sc[1]*255), (int)(sc[2]*255), (int)(sc[3]*opacity*255));
+            const Texture* vtex = vecEffect->getProcessedTexture();
+            if (vtex) {
+                // Фігура з накладеними фільтрами — малюємо готову текстуру
+                ImU32 tint = IM_COL32(255, 255, 255, static_cast<int>(opacity * 255.0f));
+                drawList->AddImage((ImTextureID)(intptr_t)vtex->getID(),
+                    ImVec2(vx, vy), ImVec2(vx + vw, vy + vh), ImVec2(0, 0), ImVec2(1, 1), tint);
+            } else {
+                const float* fc = vecEffect->getFillColor();
+                ImU32 fillCol = IM_COL32(
+                    (int)(fc[0]*255), (int)(fc[1]*255), (int)(fc[2]*255), (int)(fc[3]*opacity*255));
+                const float* sc = vecEffect->getStrokeColor();
+                ImU32 strokeCol = IM_COL32(
+                    (int)(sc[0]*255), (int)(sc[1]*255), (int)(sc[2]*255), (int)(sc[3]*opacity*255));
 
-            switch (vecEffect->getShapeType()) {
-            case VectorLayerEffect::ShapeType::Rectangle:
-                if (vecEffect->isFill())
-                    drawList->AddRectFilled(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), fillCol);
-                if (vecEffect->hasStroke())
-                    drawList->AddRect(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), strokeCol, 0.0f, 0, vecEffect->getStrokeWidth() * zoom);
-                break;
-            case VectorLayerEffect::ShapeType::Circle: {
-                ImVec2 center(vx + vw*0.5f, vy + vh*0.5f);
-                float rx = vw * 0.5f, ry = vh * 0.5f;
-                if (vecEffect->isFill())
-                    drawList->AddEllipseFilled(center, ImVec2(rx, ry), fillCol);
-                if (vecEffect->hasStroke())
-                    drawList->AddEllipse(center, ImVec2(rx, ry), strokeCol, 0.0f, 0, vecEffect->getStrokeWidth() * zoom);
-                break;
-            }
-            case VectorLayerEffect::ShapeType::RoundedRectangle: {
-                float rounding = vecEffect->getRadius() * zoom;
-                if (vecEffect->isFill())
-                    drawList->AddRectFilled(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), fillCol, rounding);
-                if (vecEffect->hasStroke())
-                    drawList->AddRect(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), strokeCol, rounding, 0, vecEffect->getStrokeWidth() * zoom);
-                break;
-            }
+                switch (vecEffect->getShapeType()) {
+                case VectorLayerEffect::ShapeType::Rectangle:
+                    if (vecEffect->isFill())
+                        drawList->AddRectFilled(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), fillCol);
+                    if (vecEffect->hasStroke())
+                        drawList->AddRect(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), strokeCol, 0.0f, 0, vecEffect->getStrokeWidth() * zoom);
+                    break;
+                case VectorLayerEffect::ShapeType::Circle: {
+                    ImVec2 center(vx + vw*0.5f, vy + vh*0.5f);
+                    float rx = vw * 0.5f, ry = vh * 0.5f;
+                    if (vecEffect->isFill())
+                        drawList->AddEllipseFilled(center, ImVec2(rx, ry), fillCol);
+                    if (vecEffect->hasStroke())
+                        drawList->AddEllipse(center, ImVec2(rx, ry), strokeCol, 0.0f, 0, vecEffect->getStrokeWidth() * zoom);
+                    break;
+                }
+                case VectorLayerEffect::ShapeType::RoundedRectangle: {
+                    float rounding = vecEffect->getRadius() * zoom;
+                    if (vecEffect->isFill())
+                        drawList->AddRectFilled(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), fillCol, rounding);
+                    if (vecEffect->hasStroke())
+                        drawList->AddRect(ImVec2(vx, vy), ImVec2(vx+vw, vy+vh), strokeCol, rounding, 0, vecEffect->getStrokeWidth() * zoom);
+                    break;
+                }
+                }
             }
         }
 
@@ -283,13 +291,36 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             float sy = globalOriginY + absY * zoom;
             float sw = str->getWidth() * zoom;
             float sh = str->getHeight() * zoom;
-            unsigned int texId = shaderEffect->renderAndGetTexture(static_cast<float>(ImGui::GetTime()), absOpacity);
+
+            // Растрові фільтри-діти шейдера
+            std::vector<std::pair<Effect*, float>> sfilters;
+            for (auto& ch : layer->getChildren()) {
+                if (!ch || !ch->isEnabled()) continue;
+                Effect* ce = ch->getEffect();
+                if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce))
+                    sfilters.push_back({ ce, ch->getOpacity() });
+            }
+            // Обрізання по формі батька (коло / заокруглений вектор)
+            ClipShape sclip;
+            if (entry.parent && entry.parent->getEffect()) {
+                if (auto pv = dynamic_cast<VectorLayerEffect*>(entry.parent->getEffect())) {
+                    if (pv->getShapeType() == VectorLayerEffect::ShapeType::Circle) {
+                        sclip.type = ClipShape::Ellipse; sclip.parentW = pv->getWidth(); sclip.parentH = pv->getHeight();
+                    } else if (pv->getShapeType() == VectorLayerEffect::ShapeType::RoundedRectangle) {
+                        sclip.type = ClipShape::Rounded; sclip.parentW = pv->getWidth(); sclip.parentH = pv->getHeight(); sclip.radius = pv->getRadius();
+                    }
+                }
+            }
+
+            bool flipV = true;
+            unsigned int texId = shaderEffect->renderAndGetTexture(
+                static_cast<float>(ImGui::GetTime()), absOpacity, sclip, sfilters, flipV);
             if (texId != 0) {
-                ImU32 tint = IM_COL32(255, 255, 255, 255);  // прозорість запечена в альфу шейдера
-                // FBO-текстура має початок у нижньому лівому куті → перевертаємо V
+                ImU32 tint = IM_COL32(255, 255, 255, 255);  // прозорість запечена в альфу/оброблено на CPU
+                ImVec2 uv0 = flipV ? ImVec2(0, 1) : ImVec2(0, 0);
+                ImVec2 uv1 = flipV ? ImVec2(1, 0) : ImVec2(1, 1);
                 drawList->AddImage((ImTextureID)(intptr_t)texId,
-                    ImVec2(sx, sy), ImVec2(sx + sw, sy + sh),
-                    ImVec2(0, 1), ImVec2(1, 0), tint);
+                    ImVec2(sx, sy), ImVec2(sx + sw, sy + sh), uv0, uv1, tint);
             }
         }
 
@@ -421,36 +452,39 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
                         applySnapping(newY);
                         tr2->setPosition(newX, newY);
                     } else {
+                        // Вільне (нерівномірне) масштабування: тягнемо від протилежного кута до миші,
+                        // ширина і висота незалежні → можна і масштабувати, і розтягувати.
                         ImVec2 oppCorner;
                         if (m_dragState == DragState::ScaleTopLeft) oppCorner = br;
                         else if (m_dragState == DragState::ScaleTopRight) oppCorner = bl;
                         else if (m_dragState == DragState::ScaleBottomLeft) oppCorner = tr;
                         else oppCorner = tl;
 
-                        float newWidth = std::abs(mousePos.x - oppCorner.x) / zoom;
-                        if (newWidth < 1.0f) newWidth = 1.0f;
+                        float newWidth  = std::abs(mousePos.x - oppCorner.x) / zoom;
+                        float newHeight = std::abs(mousePos.y - oppCorner.y) / zoom;
+                        if (newWidth  < 1.0f) newWidth  = 1.0f;
+                        if (newHeight < 1.0f) newHeight = 1.0f;
                         applySnapping(newWidth);
+                        applySnapping(newHeight);
 
-                        float curW = transformable->getWidth();
-                        float aspect = (curW > 0.0001f) ? transformable->getHeight() / curW : 1.0f;
-                        float newHeight = newWidth * aspect;
-
-                        float newX = m_dragStartX;
-                        float newY = m_dragStartY;
-                        float startW = m_dragStartWidth;
-                        if (m_dragState == DragState::ScaleTopLeft) {
-                            newX -= (newWidth - startW);
-                            newY -= (newHeight - startW * aspect);
-                        } else if (m_dragState == DragState::ScaleBottomLeft) {
-                            newX -= (newWidth - startW);
-                        } else if (m_dragState == DragState::ScaleTopRight) {
-                            newY -= (newHeight - startW * aspect);
-                        }
-                        applySnapping(newX);
-                        applySnapping(newY);
-
-                        tr2->setPosition(newX, newY);
+                        // Спершу задаємо розмір, тоді читаємо ФАКТИЧНІ розміри: деякі ефекти
+                        // не приймають довільні W/H (фото тримає пропорцію через єдиний scale).
                         tr2->setSize(newWidth, newHeight);
+                        float actualW = tr2->getWidth();
+                        float actualH = tr2->getHeight();
+
+                        // Протилежний кут лишається на місці (позиція рахується з фактичних розмірів)
+                        float oppAbsX = (oppCorner.x - globalOriginX) / zoom;
+                        float oppAbsY = (oppCorner.y - globalOriginY) / zoom;
+                        float parentX = absX - transformable->getX();  // абс. зсув батька (стабільний під час drag)
+                        float parentY = absY - transformable->getY();
+
+                        bool anchorRight = (m_dragState == DragState::ScaleTopLeft || m_dragState == DragState::ScaleBottomLeft);
+                        bool anchorBottom = (m_dragState == DragState::ScaleTopLeft || m_dragState == DragState::ScaleTopRight);
+                        float newAbsX = anchorRight  ? oppAbsX - actualW : oppAbsX;
+                        float newAbsY = anchorBottom ? oppAbsY - actualH : oppAbsY;
+
+                        tr2->setPosition(newAbsX - parentX, newAbsY - parentY);
                     }
                 }
             }

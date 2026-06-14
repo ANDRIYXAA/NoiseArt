@@ -3,8 +3,12 @@
 #include "effects/Effect.h"
 #include "renderer/Shader.h"
 #include "renderer/Framebuffer.h"
+#include "renderer/Texture.h"
+#include "effects/ClipShape.h"
 #include <glad/glad.h>
 #include <memory>
+#include <vector>
+#include <utility>
 
 namespace NoiseArt {
 
@@ -35,8 +39,10 @@ public:
     void setPosition(float x, float y) override { m_x = x; m_y = y; }
     void setSize(float w, float h) override { m_width = w; m_height = h; }
 
-    /// Рендерить шейдер у власний FBO та повертає id текстури (0 якщо не готово)
-    unsigned int renderAndGetTexture(float time, float opacity);
+    /// Рендерить шейдер; за наявності фільтрів/обрізання зчитує пікселі й обробляє на CPU.
+    /// flipV=true → повернуто сиру FBO-текстуру (малювати з V-flip); false → оброблену (top-down).
+    unsigned int renderAndGetTexture(float time, float opacity, const ClipShape& clip,
+                                     const std::vector<std::pair<Effect*, float>>& filters, bool& flipV);
 
     enum class ShaderType {
         Plasma,
@@ -68,6 +74,9 @@ private:
     float m_speed = 1.0f;
     float m_color[3] = {1.0f, 0.5f, 0.2f};
     float m_renderOpacity = 1.0f;
+    bool m_stretchPattern = true;   // true = патерн тягнеться з рамкою; false = тримає форму
+
+    std::shared_ptr<Texture> m_processed;   // кеш: оброблений фільтрами/обрізанням результат
 };
 
 } // namespace NoiseArt

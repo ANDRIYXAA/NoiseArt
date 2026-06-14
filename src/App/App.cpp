@@ -32,6 +32,8 @@
 // Стандартні бібліотеки
 #include <iostream>
 #include <filesystem>
+#include <utility>
+#include <vector>
 
 // Для діалогу відкриття файлу на Windows
 #ifdef _WIN32
@@ -328,19 +330,37 @@ void App::updateProcessing()
     auto flat = m_layerStack.flattenTree();
     for (auto& e : flat) {
         if (!e.layer || !e.layer->getEffect()) continue;
-        auto ov = dynamic_cast<OverlayEffect*>(e.layer->getEffect());
-        if (!ov) continue;
+        Effect* eff = e.layer->getEffect();
+        auto ov = dynamic_cast<OverlayEffect*>(eff);
+        auto ve = dynamic_cast<VectorLayerEffect*>(eff);
+        if (!ov && !ve) continue;   // фільтри застосовуються до фото та векторів
 
-        std::vector<Effect*> filters;
+        std::vector<std::pair<Effect*, float>> filters;
         for (auto& child : e.layer->getChildren()) {
             if (!child || !child->isEnabled()) continue;
             Effect* ce = child->getEffect();
             // Растровий фільтр = не вектор, не шейдер, не інше фото
             if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce)) {
-                filters.push_back(ce);
+                filters.push_back({ ce, child->getOpacity() });
             }
         }
-        ov->applyFilters(filters);
+        // Обрізання по формі батька, якщо батько — коло / заокруглений вектор
+        ClipShape clip;
+        if (e.parent && e.parent->getEffect()) {
+            if (auto pv = dynamic_cast<VectorLayerEffect*>(e.parent->getEffect())) {
+                if (pv->getShapeType() == VectorLayerEffect::ShapeType::Circle) {
+                    clip.type = ClipShape::Ellipse;
+                    clip.parentW = pv->getWidth(); clip.parentH = pv->getHeight();
+                } else if (pv->getShapeType() == VectorLayerEffect::ShapeType::RoundedRectangle) {
+                    clip.type = ClipShape::Rounded;
+                    clip.parentW = pv->getWidth(); clip.parentH = pv->getHeight();
+                    clip.radius = pv->getRadius();
+                }
+            }
+        }
+
+        if (ov) ov->applyFilters(filters, clip);
+        else    ve->applyFilters(filters, clip);
     }
 
     m_layerStack.setDirty(false);

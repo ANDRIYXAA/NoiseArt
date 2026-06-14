@@ -1,7 +1,12 @@
 #pragma once
 
 #include "effects/Effect.h"
+#include "renderer/Texture.h"
+#include "effects/ClipShape.h"
 #include <nanovg.h>
+#include <memory>
+#include <vector>
+#include <utility>
 
 namespace NoiseArt {
 
@@ -51,6 +56,16 @@ public:
     float getStrokeWidth() const { return m_strokeWidth; }
     float getRadius() const { return m_radius; }
 
+    // --- Ефекти на вектор (модель "контент своєї групи") ---
+    /// Растеризує фігуру у RGBA-зображення (для застосування фільтрів на CPU)
+    void rasterize(Image& out) const;
+    /// Застосовує дочірні растрові фільтри до растеризованої фігури → кеш-текстура
+    void applyFilters(const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip = {});
+    /// Текстура з накладеними фільтрами (nullptr якщо фільтрів немає)
+    const Texture* getProcessedTexture() const {
+        return (m_processed && m_processed->isValid()) ? m_processed.get() : nullptr;
+    }
+
 private:
     ShapeType m_shapeType = ShapeType::Rectangle;
     
@@ -68,6 +83,8 @@ private:
     bool m_stroke = false;
     float m_strokeColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     float m_strokeWidth = 2.0f;
+
+    std::shared_ptr<Texture> m_processed;   // кеш: фігура з накладеними фільтрами
 };
 
 } // namespace NoiseArt

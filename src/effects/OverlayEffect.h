@@ -8,6 +8,7 @@
 
 #include "Effect.h"
 #include "renderer/Texture.h"
+#include "effects/ClipShape.h"
 #include <imgui.h>
 #include <portable-file-dialogs.h>
 #include <stb_image.h>
@@ -15,6 +16,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <utility>
 #include <cstring>
 
 namespace NoiseArt {
@@ -204,19 +206,32 @@ public:
         return m_image ? m_image->texture.get() : nullptr;
     }
 
-    // Застосовує ланцюжок дочірніх растрових фільтрів до пікселів фото (модель "контент своєї групи")
-    void applyFilters(const std::vector<Effect*>& filters) {
-        if (!m_image || !m_image->pixels || filters.empty()) { m_processed.reset(); return; }
+    // Застосовує ланцюжок дочірніх растрових фільтрів до пікселів фото (модель "контент своєї групи").
+    // Кожен фільтр блендиться з попереднім результатом за СВОЄЮ opacity (pair.second).
+    void applyFilters(const std::vector<std::pair<Effect*, float>>& filters, const ClipShape& clip = {}) {
+        if (!m_image || !m_image->pixels || (filters.empty() && clip.type == ClipShape::None)) { m_processed.reset(); return; }
         Image img;
         img.create(m_image->w, m_image->h, 4);
         std::memcpy(img.getData(), m_image->pixels.get(),
                     static_cast<size_t>(m_image->w) * m_image->h * 4);
-        for (Effect* f : filters) {
-            if (!f) continue;
+        for (const auto& pr : filters) {
+            Effect* f = pr.first;
+            float op = pr.second;
+            if (!f || op <= 0.0f) continue;            // вимкнений / 0% — пропускаємо
             Image out;
             f->apply(img, out);
-            img = std::move(out);
+            if (op >= 1.0f || out.getWidth() != img.getWidth() || out.getHeight() != img.getHeight()) {
+                img = std::move(out);                  // повна сила (або фільтр змінив розмір)
+            } else {
+                // блендимо результат фільтра з оригіналом за його opacity
+                uint8_t* a = img.getData();
+                const uint8_t* b = out.getData();
+                int n = img.getWidth() * img.getHeight() * 4;
+                for (int i = 0; i < n; ++i)
+                    a[i] = static_cast<uint8_t>(a[i] + op * (static_cast<float>(b[i]) - a[i]));
+            }
         }
+        applyClipMask(img, clip, getX(), getY(), getWidth(), getHeight());
         if (!m_processed) m_processed = std::make_shared<Texture>();
         m_processed->update(img);
     }

@@ -15,6 +15,9 @@ void LayerStack::addLayer(std::unique_ptr<Layer> layer)
 {
     m_layers.push_back(std::move(layer));
     m_selectedIndex = static_cast<int>(m_layers.size()) - 1;
+    m_selectedLayer = m_layers.back().get();   // одразу вибираємо новий шар (для ручок трансформації)
+    m_selectedIndices.clear();
+    m_selectedIndices.insert(m_selectedIndex);
     m_dirty = true;
 }
 
@@ -30,6 +33,7 @@ void LayerStack::insertLayer(int index, std::unique_ptr<Layer> layer)
 
     m_layers.insert(m_layers.begin() + index, std::move(layer));
     m_selectedIndex = index;
+    m_selectedLayer = m_layers[index].get();
     m_dirty = true;
 }
 
@@ -81,6 +85,7 @@ void LayerStack::duplicateLayer(int index)
     // Вставляємо копію одразу після оригіналу
     m_layers.insert(m_layers.begin() + index + 1, std::move(copy));
     m_selectedIndex = index + 1;
+    m_selectedLayer = m_layers[index + 1].get();
     m_dirty = true;
 }
 

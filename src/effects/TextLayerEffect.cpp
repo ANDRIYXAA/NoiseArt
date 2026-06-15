@@ -25,6 +25,16 @@ bool& TextLayerEffect::fontAddRequested() {
     return r;
 }
 
+std::string& TextLayerEffect::pendingFontUrl() {
+    static std::string s;
+    return s;
+}
+
+std::string& TextLayerEffect::fontStatus() {
+    static std::string s;
+    return s;
+}
+
 void TextLayerEffect::apply(const Image& input, Image& output) {
     output = input; // Vector layer, raster is untouched
 }
@@ -74,6 +84,15 @@ bool TextLayerEffect::renderUI() {
     }
     if (ImGui::Button("Add Font...")) {
         fontAddRequested() = true;   // App відкриє діалог і завантажить через NanoVG
+    }
+    static char s_urlBuf[512] = "";
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    ImGui::InputTextWithHint("##fonturl", "Font URL (.ttf/.otf)...", s_urlBuf, sizeof(s_urlBuf));
+    if (ImGui::Button("Download Font") && s_urlBuf[0] != '\0') {
+        pendingFontUrl() = s_urlBuf;
+    }
+    if (!fontStatus().empty()) {
+        ImGui::TextWrapped("Font: %s", fontStatus().c_str());
     }
     
     if (ImGui::DragFloat("Font Size", &m_fontSize, 1.0f, 8.0f, 1000.0f)) changed = true;

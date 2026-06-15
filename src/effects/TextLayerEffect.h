@@ -55,8 +55,12 @@ public:
 
     // Динамічний список шрифтів (стартує з вбудованих, поповнюється через "Add Font")
     static std::vector<std::string>& fonts();
-    /// Прапорець-запит на додавання шрифту (обробляє App — у нього є NanoVG-контекст)
+    /// Прапорець-запит на додавання шрифту з файлу (обробляє App — у нього є NanoVG-контекст)
     static bool& fontAddRequested();
+    /// URL для завантаження шрифту (непорожній → App завантажить і зареєструє)
+    static std::string& pendingFontUrl();
+    /// Статус останнього додавання шрифту (показується в UI)
+    static std::string& fontStatus();
 
     // Вбудовані шрифти (ті ж імена, що зареєстровані в NanoVG) — стартовий список
     static constexpr const char* FontNames[] = {

@@ -40,6 +40,8 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <commdlg.h>
+#include <urlmon.h>
+#pragma comment(lib, "urlmon.lib")
 #endif
 
 namespace NoiseArt {
@@ -116,6 +118,9 @@ bool App::init()
     nvgCreateFont(m_vg, "Comic Sans MS", "C:/Windows/Fonts/comic.ttf");
     nvgCreateFont(m_vg, "Segoe UI", "C:/Windows/Fonts/segoeui.ttf");
     nvgCreateFont(m_vg, "Consolas", "C:/Windows/Fonts/consola.ttf");
+    // Monocraft (валідний, з resources/fonts) — одразу в список шрифтів
+    if (nvgCreateFont(m_vg, "Monocraft", "resources/fonts/Monocraft.ttf") != -1)
+        TextLayerEffect::fonts().push_back("Monocraft");
     std::cout << "[OK] Шрифти завантажено" << std::endl;
 
     // ===== ImGui =====
@@ -415,23 +420,71 @@ void App::saveImage(const std::string& path)
 // ============================================================================
 void App::processPendingFonts()
 {
-    if (!TextLayerEffect::fontAddRequested()) return;
-    TextLayerEffect::fontAddRequested() = false;
+    namespace fs = std::filesystem;
+    const std::string fontsDir = "resources/fonts";
 
-    auto res = pfd::open_file("Choose a font", "",
-        { "Fonts (.ttf .otf)", "*.ttf *.otf", "All Files", "*" }).result();
-    if (res.empty()) return;
+    std::string srcPath;   // локальний файл (Add Font...)
+    std::string url;       // або URL (Download Font)
 
-    std::string path = res[0];
-    std::string name = std::filesystem::path(path).stem().string();
+    if (TextLayerEffect::fontAddRequested()) {
+        TextLayerEffect::fontAddRequested() = false;
+        auto res = pfd::open_file("Choose a font", "",
+            { "Fonts (.ttf .otf)", "*.ttf *.otf", "All Files", "*" }).result();
+        if (!res.empty()) srcPath = res[0];
+    }
+    std::string& pendingUrl = TextLayerEffect::pendingFontUrl();
+    if (srcPath.empty() && !pendingUrl.empty()) {
+        url = pendingUrl;
+        pendingUrl.clear();
+    }
+
+    if (srcPath.empty() && url.empty()) return;
+
+    // Створюємо папку шрифтів, якщо її ще немає
+    std::error_code ec;
+    fs::create_directories(fontsDir, ec);
+
+    std::string dest;
+    if (!srcPath.empty()) {
+        // Копіюємо вибраний файл у папку шрифтів
+        std::string fname = fs::path(srcPath).filename().string();
+        if (fname.empty()) return;
+        dest = fontsDir + "/" + fname;
+        fs::copy_file(srcPath, dest, fs::copy_options::overwrite_existing, ec);
+        if (ec) dest = srcPath;   // не вдалось скопіювати (напр. вже там) → вантажимо з оригіналу
+    } else {
+        // Завантажуємо з URL у папку шрифтів
+        std::string fname = url;
+        auto q = fname.find('?');
+        if (q != std::string::npos) fname = fname.substr(0, q);
+        auto slash = fname.find_last_of("/\\");
+        if (slash != std::string::npos) fname = fname.substr(slash + 1);
+        if (fname.empty()) fname = "downloaded_font.ttf";
+        dest = fontsDir + "/" + fname;
+#ifdef _WIN32
+        HRESULT hr = URLDownloadToFileA(nullptr, url.c_str(), dest.c_str(), 0, nullptr);
+        if (!SUCCEEDED(hr)) { TextLayerEffect::fontStatus() = "Download failed (direct .ttf/.otf URL?)"; std::cerr << "[ПОМИЛКА] Завантаження не вдалося: " << url << std::endl; return; }
+#else
+        std::string cmd = "curl -sL -o \"" + dest + "\" \"" + url + "\"";
+        if (std::system(cmd.c_str()) != 0) { std::cerr << "[ПОМИЛКА] Завантаження не вдалося: " << url << std::endl; return; }
+#endif
+    }
+
+    std::string name = fs::path(dest).stem().string();
     if (name.empty()) return;
 
-    if (m_vg && nvgCreateFont(m_vg, name.c_str(), path.c_str()) != -1) {
-        TextLayerEffect::fonts().push_back(name);
+    if (m_vg && nvgCreateFont(m_vg, name.c_str(), dest.c_str()) != -1) {
+        // Додаємо в список без дублікатів
+        auto& fl = TextLayerEffect::fonts();
+        bool exists = false;
+        for (auto& n : fl) if (n == name) { exists = true; break; }
+        if (!exists) fl.push_back(name);
         m_layerStack.setDirty(true);
-        std::cout << "[OK] Шрифт додано: " << name << std::endl;
+        TextLayerEffect::fontStatus() = "Added: " + name;
+        std::cout << "[OK] Шрифт додано: " << name << " -> " << dest << std::endl;
     } else {
-        std::cerr << "[ПОМИЛКА] Не вдалося завантажити шрифт: " << path << std::endl;
+        TextLayerEffect::fontStatus() = "Load failed (invalid font file?): " + name;
+        std::cerr << "[ПОМИЛКА] Не вдалося завантажити шрифт: " << dest << std::endl;
     }
 }
 

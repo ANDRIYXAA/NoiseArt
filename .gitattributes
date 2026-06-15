@@ -1,0 +1,9 @@
+# Бінарні ассети — git НЕ застосовує EOL-конвертацію (інакше може зіпсувати файл)
+*.ttf  binary
+*.otf  binary
+*.ttc  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.bmp  binary
+*.tga  binary

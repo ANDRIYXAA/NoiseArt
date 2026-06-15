@@ -46,6 +46,8 @@ find_package(OpenGL REQUIRED)
 # stb — завантаження/збереження зображень (header-only)
 find_package(Stb REQUIRED)
 find_package(nanovg CONFIG REQUIRED)
+# imgui-node-editor — нодовий редактор на Dear ImGui (нодова система шейдерів/ефектів)
+find_package(unofficial-imgui-node-editor CONFIG REQUIRED)
 
 # ===== Створюємо виконуваний файл =====
 # Тут перелічуємо ВСІ .cpp файли проєкту.
@@ -84,6 +86,9 @@ add_executable(${PROJECT_NAME}
     src/ui/panels/EffectsPanel.cpp
     src/ui/panels/PropertiesPanel.cpp
     src/ui/panels/SettingsPanel.cpp
+
+    # Граф (нодова система — у розробці на гілці feature/node-editor)
+    src/graph/SmokeTest.cpp
 )
 
 # ===== Шляхи для #include =====
@@ -102,6 +107,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     glad::glad              # GLAD — завантажувач OpenGL
     OpenGL::GL              # Системна OpenGL бібліотека
     nanovg::nanovg
+    unofficial::imgui-node-editor::imgui-node-editor   # нодовий редактор
 )
 
 # Копіюємо папку resources у вихідну директорію після збірки

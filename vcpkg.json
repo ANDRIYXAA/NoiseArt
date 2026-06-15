@@ -24,6 +24,7 @@
     "portable-file-dialogs",
     "glm",
     "nanovg",
-    "nlohmann-json"
+    "nlohmann-json",
+    "imgui-node-editor"
   ]
 }

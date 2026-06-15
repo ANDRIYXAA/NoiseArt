@@ -100,6 +100,17 @@ bool NodeGraph::connect(int fromSocketId, int toSocketId) {
     return true;
 }
 
+bool NodeGraph::canConnect(int fromSocketId, int toSocketId) const {
+    const Socket* from = findSocket(fromSocketId);
+    const Socket* to   = findSocket(toSocketId);
+    if (!from || !to)                  return false;
+    if (from->isInput || !to->isInput) return false;
+    if (from->type != to->type)        return false;
+    if (from->nodeId == to->nodeId)    return false;
+    if (wouldCycle(from->nodeId, to->nodeId)) return false;
+    return true;
+}
+
 void NodeGraph::disconnect(int linkId) {
     for (int i = static_cast<int>(m_links.size()) - 1; i >= 0; --i)
         if (m_links[i].id == linkId)

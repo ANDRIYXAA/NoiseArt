@@ -86,6 +86,7 @@ add_executable(${PROJECT_NAME}
     src/ui/panels/EffectsPanel.cpp
     src/ui/panels/PropertiesPanel.cpp
     src/ui/panels/SettingsPanel.cpp
+    src/ui/panels/NodeEditorPanel.cpp
 
     # Граф (нодова система)
     src/graph/NodeGraph.cpp

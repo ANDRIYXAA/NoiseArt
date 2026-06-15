@@ -280,6 +280,7 @@ void App::renderMenuBar()
             ImGui::MenuItem("Effects", nullptr, &m_effectsPanel.isOpen);
             ImGui::MenuItem("Properties", nullptr, &m_propertiesPanel.isOpen);
             ImGui::MenuItem("Settings", nullptr, &m_settingsPanel.isOpen);
+            ImGui::MenuItem("Node Editor", nullptr, &m_nodeEditorPanel.isOpen);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Help")) {
@@ -327,6 +328,11 @@ void App::renderUI()
 
     // Панель налаштувань
     m_settingsPanel.render(&m_settingsPanel.isOpen, m_settings);
+
+    // Нодовий редактор (редагує граф вибраного шару Node Graph)
+    if (m_nodeEditorPanel.render(m_layerStack, m_registry)) {
+        m_layerStack.setDirty();
+    }
 }
 
 // ============================================================================
@@ -566,6 +572,7 @@ void App::shutdown()
     // Звільняємо GPU-ресурси шарів та історії ПОКИ OpenGL контекст ще живий
     m_history.clear();
     m_layerStack.clear();
+    m_nodeEditorPanel.shutdown();   // звільнити контекст нодового редактора до тіардауну GL/ImGui
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();

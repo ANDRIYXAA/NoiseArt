@@ -37,6 +37,7 @@ public:
 
     void removeNode(int nodeId);                     // не видаляє Output
     bool connect(int fromSocketId, int toSocketId);  // перевірка типів+циклів; 1 ребро на вхід
+    bool canConnect(int fromSocketId, int toSocketId) const;  // чи валідне з'єднання (без мутації)
     void disconnect(int linkId);
 
     // --- Доступ ---

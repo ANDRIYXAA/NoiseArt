@@ -27,6 +27,7 @@
 #include "ui/panels/EffectsPanel.h"
 #include "ui/panels/PropertiesPanel.h"
 #include "ui/panels/SettingsPanel.h"
+#include "ui/panels/NodeEditorPanel.h"
 
 namespace NoiseArt {
 
@@ -106,6 +107,7 @@ private:
     EffectsPanel m_effectsPanel;
     PropertiesPanel m_propertiesPanel;
     SettingsPanel m_settingsPanel;
+    NodeEditorPanel m_nodeEditorPanel;
 };
 
 } // namespace NoiseArt

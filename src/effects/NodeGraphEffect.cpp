@@ -59,9 +59,11 @@ unsigned int NodeGraphEffect::renderAndGetTexture(float time, float opacity, con
     // результат графа й проганяємо через ті самі CPU-фільтри + ClipShape.
     Image img;
     img.create(static_cast<int>(RES), static_cast<int>(RES), 4);
+    GLint prevTex = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
     glBindTexture(GL_TEXTURE_2D, graphTex);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.getData());
-    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prevTex));
 
     // FBO-текстура bottom-up → перевертаємо у top-down
     int W = img.getWidth(), H = img.getHeight();

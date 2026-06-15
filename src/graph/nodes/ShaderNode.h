@@ -58,6 +58,8 @@ public:
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Без блендингу — альфа = u_opacity (прозорість застосує viewport через tint).
+        // Зберігаємо й відновлюємо стан блендингу, щоб не лишати його вимкненим у кадрі.
+        const GLboolean wasBlend = glIsEnabled(GL_BLEND);
         glDisable(GL_BLEND);
         m_shader->bind();
         m_shader->setFloat("u_time", ctx.time);
@@ -69,6 +71,7 @@ public:
         m_shader->setFloat("u_opacity", 1.0f);
         ctx.quad->draw();
         m_shader->unbind();
+        if (wasBlend) glEnable(GL_BLEND);
 
         m_fbo.unbind();
         glViewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);

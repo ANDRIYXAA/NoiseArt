@@ -28,6 +28,7 @@
 #include "effects/ArtboardLayerEffect.h"
 #include "effects/ShaderLayerEffect.h"
 #include "effects/OverlayEffect.h"
+#include "effects/NodeGraphEffect.h"
 
 // Стандартні бібліотеки
 #include <iostream>
@@ -185,6 +186,7 @@ bool App::init()
     m_registry.registerEffect<VectorLayerEffect>();
     m_registry.registerEffect<ArtboardLayerEffect>();
     m_registry.registerEffect<ShaderLayerEffect>();
+    m_registry.registerEffect<NodeGraphEffect>();
 
     // ===== Готово! =====
     m_running = true;

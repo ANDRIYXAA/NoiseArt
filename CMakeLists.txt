@@ -87,8 +87,9 @@ add_executable(${PROJECT_NAME}
     src/ui/panels/PropertiesPanel.cpp
     src/ui/panels/SettingsPanel.cpp
 
-    # Граф (нодова система — у розробці на гілці feature/node-editor)
-    src/graph/SmokeTest.cpp
+    # Граф (нодова система)
+    src/graph/NodeGraph.cpp
+    src/effects/NodeGraphEffect.cpp
 )
 
 # ===== Шляхи для #include =====

@@ -66,6 +66,13 @@ private:
     int m_nextId       = 1;
     int m_outputNodeId = -1;
     int m_inputNodeId  = -1;
+
+    // Граф-рівневий кеш результату (транзієнтний — НЕ копіюється у copyFrom)
+    unsigned int m_lastResult   = 0;
+    bool         m_haveResult   = false;
+    uint64_t     m_lastGen      = 0;
+    int          m_lastRes      = 0;
+    float        m_lastEvalTime = -1.0f;
 };
 
 } // namespace NoiseArt

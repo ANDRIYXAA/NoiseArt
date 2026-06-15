@@ -8,6 +8,7 @@
 #include "effects/VectorLayerEffect.h"
 #include "effects/TextLayerEffect.h"
 #include "effects/ShaderLayerEffect.h"
+#include "effects/NodeGraphEffect.h"
 #include "App/App.h"
 #include <algorithm>
 #include <cmath>
@@ -342,6 +343,54 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
                 static_cast<float>(ImGui::GetTime()), absOpacity, sclip, sfilters, flipV, sopts);
             if (texId != 0) {
                 ImU32 tint = IM_COL32(255, 255, 255, 255);  // прозорість запечена в альфу/оброблено на CPU
+                ImVec2 uv0 = flipV ? ImVec2(0, 1) : ImVec2(0, 0);
+                ImVec2 uv1 = flipV ? ImVec2(1, 0) : ImVec2(1, 1);
+                drawList->AddImage((ImTextureID)(intptr_t)texId,
+                    ImVec2(sx, sy), ImVec2(sx + sw, sy + sh), uv0, uv1, tint);
+            }
+        }
+
+        // --- NodeGraphEffect (нодовий граф) — окрема гілка (line 304 кастить до КОНКРЕТНОГО ShaderLayerEffect*) ---
+        auto nodeGraphEffect = dynamic_cast<NodeGraphEffect*>(effect);
+        if (nodeGraphEffect) {
+            auto ngt = nodeGraphEffect->getTransformable();
+            float sx = globalOriginX + absX * zoom;
+            float sy = globalOriginY + absY * zoom;
+            float sw = ngt->getWidth() * zoom;
+            float sh = ngt->getHeight() * zoom;
+
+            // Растрові фільтри: власні дочірні + успадковані від груп-предків (як для шейдера)
+            std::vector<std::pair<Effect*, float>> sfilters;
+            for (Layer* container = layer; container; container = container->getParent()) {
+                for (auto& ch : container->getChildren()) {
+                    if (!ch || !ch->isEnabled()) continue;
+                    Effect* ce = ch->getEffect();
+                    if (ce && !ce->isVector() && !ce->isShader() && !dynamic_cast<OverlayEffect*>(ce))
+                        sfilters.push_back({ ce, ch->getOpacity() });
+                }
+            }
+            ClipShape sclip;
+            if (entry.parent && entry.parent->getEffect()) {
+                if (auto pv = dynamic_cast<VectorLayerEffect*>(entry.parent->getEffect())) {
+                    if (pv->getShapeType() == VectorLayerEffect::ShapeType::Circle) {
+                        sclip.type = ClipShape::Ellipse; sclip.parentW = pv->getWidth(); sclip.parentH = pv->getHeight();
+                    } else if (pv->getShapeType() == VectorLayerEffect::ShapeType::RoundedRectangle) {
+                        sclip.type = ClipShape::Rounded; sclip.parentW = pv->getWidth(); sclip.parentH = pv->getHeight(); sclip.radius = pv->getRadius();
+                    }
+                }
+            }
+
+            bool flipV = true;
+            ShaderLayerEffect::ShaderRenderOpts sopts;
+            sopts.cache          = settings.optShaderCache;
+            sopts.throttle       = settings.optThrottle;
+            sopts.lowResInteract = settings.optLowResDrag;
+            sopts.interacting    = (m_dragState != DragState::None);
+            sopts.editGen        = layerStack.editGen();
+            unsigned int texId = nodeGraphEffect->renderAndGetTexture(
+                static_cast<float>(ImGui::GetTime()), absOpacity, sclip, sfilters, flipV, sopts);
+            if (texId != 0) {
+                ImU32 tint = IM_COL32(255, 255, 255, static_cast<int>(absOpacity * 255.0f));
                 ImVec2 uv0 = flipV ? ImVec2(0, 1) : ImVec2(0, 0);
                 ImVec2 uv1 = flipV ? ImVec2(1, 0) : ImVec2(1, 1);
                 drawList->AddImage((ImTextureID)(intptr_t)texId,

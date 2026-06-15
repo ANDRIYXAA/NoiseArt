@@ -4,6 +4,7 @@
 #include "graph/NodeGraph.h"
 #include "graph/nodes/InputNode.h"
 #include "graph/nodes/OutputNode.h"
+#include "graph/nodes/ShaderNode.h"
 #include <set>
 #include <functional>
 
@@ -19,14 +20,14 @@ void NodeGraph::buildDefault() {
     m_links.clear();
     m_nextId = 1; m_outputNodeId = -1; m_inputNodeId = -1;
 
-    auto* in  = createNode<InputNode>();
+    // Типовий граф: процедурний шейдер (Plasma) → Output, щоб шар одразу щось малював.
+    auto* sh  = createNode<ShaderNode>(ShaderNode::Kind::Plasma);
     auto* out = createNode<OutputNode>();
-    m_inputNodeId  = in->id();
     m_outputNodeId = out->id();
-    in->m_editorX  =  40.0f; in->m_editorY  = 80.0f;
+    sh->m_editorX  =  40.0f; sh->m_editorY  = 80.0f;
     out->m_editorX = 360.0f; out->m_editorY = 80.0f;
 
-    connect(in->outputs()[0].id, out->inputs()[0].id);  // Input.in -> Output.result
+    connect(sh->outputs()[0].id, out->inputs()[0].id);  // Shader.out -> Output.result
 }
 
 void NodeGraph::copyFrom(const NodeGraph& o) {
@@ -121,9 +122,48 @@ void NodeGraph::removeNode(int nodeId) {
 }
 
 unsigned int NodeGraph::evaluate(NodeEvalContext& ctx) {
-    // Phase 1: заглушка. Справжній топологічний GPU-евал — у Phase 2.
-    // Поки що прокидаємо вхідну текстуру шару (для генератора = 0 → нічого не малюється).
-    return ctx.sourceTex;
+    if (m_outputNodeId < 0 || !findNode(m_outputNodeId)) return 0;
+
+    bool animated = false;
+    for (const auto& n : m_nodes) if (n->isAnimated()) { animated = true; break; }
+
+    // Граф-рівневий кеш/тротлінг (аналог ShaderLayerEffect, але для всього графа).
+    if (m_haveResult && ctx.cache && ctx.editGen == m_lastGen && ctx.width == m_lastRes) {
+        if (!animated) return m_lastResult;                       // нічого не змінилось
+        if (ctx.throttle && m_lastEvalTime >= 0.0f &&
+            (ctx.time - m_lastEvalTime) < ctx.throttleInterval)
+            return m_lastResult;                                  // анімація, але оновлювати зарано
+    }
+
+    // Повний топологічний прохід (post-order DFS від Output).
+    std::set<int> inProgress;
+    std::set<int> done;
+    std::function<unsigned int(int)> eval = [&](int nid) -> unsigned int {
+        Node* n = findNode(nid);
+        if (!n) return 0;
+        if (done.count(nid)) return n->m_cacheTex;
+        if (!inProgress.insert(nid).second) return 0;   // захист від циклу
+        std::vector<unsigned int> inTex;
+        inTex.reserve(n->inputs().size());
+        for (const auto& s : n->inputs()) {
+            int prod = producerNodeForInput(s.id);
+            inTex.push_back(prod >= 0 ? eval(prod) : 0u);   // 0 = вхід не під'єднано
+        }
+        inProgress.erase(nid);
+        unsigned int tex = n->evaluate(ctx, inTex);
+        n->m_cacheTex   = tex;
+        n->m_cacheValid = true;
+        done.insert(nid);
+        return tex;
+    };
+    unsigned int result = eval(m_outputNodeId);
+
+    m_lastResult   = result;
+    m_haveResult   = true;
+    m_lastGen      = ctx.editGen;
+    m_lastRes      = ctx.width;
+    m_lastEvalTime = ctx.time;
+    return result;
 }
 
 } // namespace NoiseArt

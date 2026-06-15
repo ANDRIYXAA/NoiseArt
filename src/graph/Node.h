@@ -21,14 +21,19 @@ class QuadRenderer;  // спільний фулскрін-квад (Phase 2)
 
 // Контекст одного проходу обчислення графа.
 struct NodeEvalContext {
-    int           width          = 512;
-    int           height         = 512;
-    float         time           = 0.0f;
-    uint64_t      editGen        = 0;
-    bool          interacting    = false;
-    bool          lowResInteract = false;
-    unsigned int  sourceTex      = 0;        // вхідна текстура шару (для InputNode)
-    QuadRenderer* quad           = nullptr;  // Phase 2
+    int           width            = 512;     // роздільність рендеру (RES)
+    int           height           = 512;
+    float         layerW           = 400.0f;  // розмір шару на полотні (для u_resolution шейдера)
+    float         layerH           = 300.0f;
+    float         time             = 0.0f;
+    uint64_t      editGen          = 0;
+    bool          interacting      = false;
+    bool          lowResInteract   = false;
+    bool          cache            = true;
+    bool          throttle         = false;
+    float         throttleInterval = 1.0f / 30.0f;
+    unsigned int  sourceTex        = 0;        // вхідна текстура шару (для InputNode)
+    QuadRenderer* quad             = nullptr;  // спільний фулскрін-квад
 };
 
 class Node {
@@ -57,6 +62,9 @@ public:
 
     // --- Кеш / ідентичність ---
     virtual std::size_t paramHash() const { return 0; }
+
+    // --- Чи залежить нода від часу? Графи з анімацією рендеряться щокадру (з тротлінгом). ---
+    virtual bool isAnimated() const { return false; }
 
     // --- Глибока копія (зберігає id ноди та id її сокетів) ---
     virtual std::unique_ptr<Node> clone() const = 0;

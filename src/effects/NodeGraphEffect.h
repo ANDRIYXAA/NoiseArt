@@ -9,9 +9,14 @@
 
 #include "effects/Effect.h"
 #include "effects/ITransformable.h"
+#include "effects/ShaderLayerEffect.h"   // ShaderRenderOpts + ClipShape (паритет сигнатури рендеру)
 #include "graph/NodeGraph.h"
+#include "graph/QuadRenderer.h"
+#include "renderer/Texture.h"
 #include <memory>
 #include <string>
+#include <vector>
+#include <utility>
 
 namespace NoiseArt {
 
@@ -27,6 +32,12 @@ public:
     bool renderUI() override;
     std::unique_ptr<Effect> clone() const override;
 
+    /// Обчислює граф у текстуру. Та сама сигнатура, що в ShaderLayerEffect — viewport
+    /// викликає однаково. flipV=true → сира FBO-текстура; false → оброблена (top-down).
+    unsigned int renderAndGetTexture(float time, float opacity, const ClipShape& clip,
+                                     const std::vector<std::pair<Effect*, float>>& filters, bool& flipV,
+                                     const ShaderLayerEffect::ShaderRenderOpts& opts);
+
     // ITransformable — геометрія на полотні (як у ShaderLayerEffect)
     ITransformable* getTransformable() override { return this; }
     float getX() const override { return m_x; }
@@ -40,9 +51,11 @@ public:
     const NodeGraph& graph() const { return m_graph; }
 
 private:
-    float     m_x = 0.0f,   m_y = 0.0f;
-    float     m_w = 400.0f, m_h = 300.0f;
-    NodeGraph m_graph;
+    float        m_x = 0.0f,   m_y = 0.0f;
+    float        m_w = 400.0f, m_h = 300.0f;
+    NodeGraph    m_graph;
+    QuadRenderer m_quad;                    // спільний квад для нод-шейдерів
+    std::shared_ptr<Texture> m_processed;   // результат readback-шляху (фільтри/обрізання)
 };
 
 } // namespace NoiseArt

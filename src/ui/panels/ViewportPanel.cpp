@@ -11,6 +11,7 @@
 #include "App/App.h"
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 
 namespace NoiseArt {
 
@@ -48,6 +49,11 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         camera.setZoom(1.0f);
         camera.setPosition({0, 0});
     }
+    // Перемикачі сітки та прив'язки (снепінгу) прямо в тулбарі viewport
+    ImGui::SameLine();
+    ImGui::Checkbox("Grid", &settings.showGrid);
+    ImGui::SameLine();
+    ImGui::Checkbox("Snap", &settings.snapToGrid);
 
     ImGui::Separator();
 
@@ -167,6 +173,8 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         if (!layer || !layer->isEnabled()) continue;
         auto effect = layer->getEffect();
         if (!effect) continue;
+
+        auto __perfT0 = std::chrono::high_resolution_clock::now();
 
         // Обчислюємо абсолютну позицію та opacity, піднімаючись по дереву
         float absX = 0.0f;
@@ -324,8 +332,14 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
             }
 
             bool flipV = true;
+            ShaderLayerEffect::ShaderRenderOpts sopts;
+            sopts.cache          = settings.optShaderCache;
+            sopts.throttle       = settings.optThrottle;
+            sopts.lowResInteract = settings.optLowResDrag;
+            sopts.interacting    = (m_dragState != DragState::None);
+            sopts.editGen        = layerStack.editGen();
             unsigned int texId = shaderEffect->renderAndGetTexture(
-                static_cast<float>(ImGui::GetTime()), absOpacity, sclip, sfilters, flipV);
+                static_cast<float>(ImGui::GetTime()), absOpacity, sclip, sfilters, flipV, sopts);
             if (texId != 0) {
                 ImU32 tint = IM_COL32(255, 255, 255, 255);  // прозорість запечена в альфу/оброблено на CPU
                 ImVec2 uv0 = flipV ? ImVec2(0, 1) : ImVec2(0, 0);
@@ -336,6 +350,9 @@ void ViewportPanel::render(const Texture& texture, const Framebuffer& fbo, const
         }
 
         if (clipPushed) drawList->PopClipRect();
+
+        auto __perfT1 = std::chrono::high_resolution_clock::now();
+        layerStack.recordPerf(layer, std::chrono::duration<float, std::milli>(__perfT1 - __perfT0).count());
     }
 
     // ===== РАМКИ ВИДІЛЕНИХ ШАРІВ (multi-select) =====

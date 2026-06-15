@@ -362,4 +362,16 @@ void LayerStack::removeLayerPtr(Layer* layer) {
     m_dirty = true;
 }
 
+void LayerStack::recordPerf(const Layer* layer, float ms) {
+    if (!layer) return;
+    auto it = m_perfMs.find(layer);
+    if (it == m_perfMs.end()) m_perfMs[layer] = ms;
+    else it->second = it->second * 0.9f + ms * 0.1f;   // згладжування (EMA)
+}
+
+float LayerStack::getPerfMs(const Layer* layer) const {
+    auto it = m_perfMs.find(layer);
+    return (it != m_perfMs.end()) ? it->second : 0.0f;
+}
+
 } // namespace NoiseArt

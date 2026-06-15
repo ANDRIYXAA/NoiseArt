@@ -42,6 +42,25 @@ void SettingsPanel::render(bool* open, AppSettings& settings)
                 ImGui::EndTabItem();
             }
 
+            if (ImGui::BeginTabItem("Performance")) {
+                ImGui::Text("Оптимізація рендеру (важкі шари / шейдери):");
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                ImGui::Checkbox("Smart render cache", &settings.optShaderCache);
+                ImGui::TextDisabled("  Рахувати шейдер лише при зміні. Статичні (Speed=0) майже безкоштовні.");
+                ImGui::Spacing();
+                ImGui::Checkbox("Throttle to ~30 FPS", &settings.optThrottle);
+                ImGui::TextDisabled("  Анімовані шейдери оновлювати не частіше ~30 разів/сек.");
+                ImGui::Spacing();
+                ImGui::Checkbox("Low-res while dragging", &settings.optLowResDrag);
+                ImGui::TextDisabled("  Під час перетягування рендерити в 256px (вчетверо менший readback).");
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::EndTabItem();
+            }
+
             if (ImGui::BeginTabItem("General")) {
                 ImGui::Text("App Background Color:");
                 ImGui::ColorEdit4("Clear Color", m_clearColor);

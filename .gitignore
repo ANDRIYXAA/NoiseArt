@@ -39,3 +39,8 @@ vcpkg_installed/
 crash_log.txt
 releases.json
 scratch/
+font_log.txt
+font_err.txt
+
+# ===== Dev conversation log =====
+*conversation.md

@@ -130,7 +130,14 @@ bool LayersPanel::render(LayerStack& stack)
 
     // ===== Список шарів (дерево, від верхнього до нижнього) =====
     auto flatTree = stack.flattenTree();
-    
+
+    // Макс. навантаження серед шарів — для ВІДНОСНОЇ шкали кольору (зелений→червоний)
+    float maxMs = 0.0f;
+    for (auto& e : flatTree) {
+        float m = stack.getPerfMs(e.layer);
+        if (m > maxMs) maxMs = m;
+    }
+
     // Малюємо у зворотньому порядку (верхній шар зверху UI)
     for (int fi = static_cast<int>(flatTree.size()) - 1; fi >= 0; --fi) {
         auto& entry = flatTree[fi];
@@ -173,19 +180,29 @@ bool LayersPanel::render(LayerStack& stack)
         bool isSelected = isPrimary || inMultiSet;
 
         // --- Вибір шару (Selectable) ---
-        char label[128];
+        float layerMs = stack.getPerfMs(layer);
+        char label[160];
         const char* typeIcon = "";
         if (layer->hasChildren()) typeIcon = "[G] ";
-        snprintf(label, sizeof(label), "%s%s  [%s]",
+        // ВАЖЛИВО: мс міняється щокадру, тож виносимо його у видиму частину,
+        // а ID Selectable фіксуємо через ###<вказівник> — інакше ламається drag&drop.
+        snprintf(label, sizeof(label), "%s%s  [%s]  %.2f ms###node%p",
             typeIcon,
             layer->getName().c_str(),
-            BlendModeNames[static_cast<int>(layer->getBlendMode())]);
+            BlendModeNames[static_cast<int>(layer->getBlendMode())],
+            layerMs,
+            static_cast<void*>(layer));
 
         // Колір виділення: жовтий для multi-select
         bool multiHighlight = inMultiSet && stack.getSelectionCount() > 1;
         if (multiHighlight) {
             ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.6f, 0.5f, 0.0f, 0.5f));
         }
+
+        // Колір тексту = ВІДНОСНЕ навантаження: зелений (легкий) → червоний (важкий)
+        float perfT = (maxMs > 0.0001f) ? (layerMs / maxMs) : 0.0f;
+        if (perfT > 1.0f) perfT = 1.0f;
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f + 0.65f * perfT, 1.0f - 0.65f * perfT, 0.25f, 1.0f));
 
         if (ImGui::Selectable(label, isSelected)) {
             bool shiftHeld = ImGui::GetIO().KeyShift;
@@ -205,8 +222,9 @@ bool LayersPanel::render(LayerStack& stack)
             }
         }
 
+        ImGui::PopStyleColor();   // колір тексту (навантаження)
         if (multiHighlight) {
-            ImGui::PopStyleColor();
+            ImGui::PopStyleColor();   // колір виділення (multi-select)
         }
 
         // --- Drag Source (для перетягування) ---

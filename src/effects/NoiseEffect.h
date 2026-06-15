@@ -26,37 +26,47 @@ public:
     {
         output = input.clone();
         uint8_t* pixels = output.getData();
-        int totalPixels = output.getWidth() * output.getHeight();
+        int w = output.getWidth();
+        int h = output.getHeight();
 
-        // Створюємо генератор випадкових чисел
-        // mt19937 — алгоритм Мерсенна-Твістера (швидкий і якісний)
-        // m_seed — "зерно", яке визначає послідовність чисел
-        // Одне й те саме зерно = одна й та сама послідовність (для відтворюваності)
-        std::mt19937 rng(m_seed);
-
-        // uniform_int_distribution — рівномірний розподіл цілих чисел
-        // від -maxNoise до +maxNoise
         int maxNoise = static_cast<int>(m_intensity * 2.55f); // 0-255
         if (maxNoise == 0) return; // Інтенсивність 0 = нічого не робити
 
-        std::uniform_int_distribution<int> dist(-maxNoise, maxNoise);
+        int grain = (m_grainSize < 1) ? 1 : m_grainSize;
+        uint32_t seed = static_cast<uint32_t>(m_seed);
+        uint32_t range = static_cast<uint32_t>(2 * maxNoise + 1);
 
-        for (int i = 0; i < totalPixels; ++i) {
-            int idx = i * 4;
+        // Хеш координат ЗЕРНА → детерміноване значення шуму.
+        // Усі пікселі в одній клітинці grain×grain отримують однаковий шум.
+        auto noiseAt = [&](uint32_t gx, uint32_t gy, uint32_t c) -> int {
+            uint32_t hsh = seed + 0x9E3779B9u;
+            hsh ^= gx * 374761393u;  hsh = (hsh << 13) | (hsh >> 19);
+            hsh ^= gy * 668265263u;  hsh = (hsh << 13) | (hsh >> 19);
+            hsh ^= c  * 2246822519u; hsh *= 2654435761u;
+            hsh ^= hsh >> 15;
+            return static_cast<int>(hsh % range) - maxNoise;
+        };
 
-            if (m_monochrome) {
-                // Монохромний шум: одне значення для всіх каналів
-                int noise = dist(rng);
-                for (int c = 0; c < 3; ++c) {
-                    int value = static_cast<int>(pixels[idx + c]) + noise;
-                    pixels[idx + c] = static_cast<uint8_t>(std::clamp(value, 0, 255));
-                }
-            } else {
-                // Кольоровий шум: різне значення для кожного каналу
-                for (int c = 0; c < 3; ++c) {
-                    int noise = dist(rng);
-                    int value = static_cast<int>(pixels[idx + c]) + noise;
-                    pixels[idx + c] = static_cast<uint8_t>(std::clamp(value, 0, 255));
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int idx = (y * w + x) * 4;
+                uint32_t gx = static_cast<uint32_t>(x / grain);
+                uint32_t gy = static_cast<uint32_t>(y / grain);
+
+                if (m_monochrome) {
+                    // Монохромний шум: одне значення на всі канали
+                    int noise = noiseAt(gx, gy, 0u);
+                    for (int c = 0; c < 3; ++c) {
+                        int value = static_cast<int>(pixels[idx + c]) + noise;
+                        pixels[idx + c] = static_cast<uint8_t>(std::clamp(value, 0, 255));
+                    }
+                } else {
+                    // Кольоровий шум: своє значення для кожного каналу
+                    for (int c = 0; c < 3; ++c) {
+                        int noise = noiseAt(gx, gy, static_cast<uint32_t>(c) + 1u);
+                        int value = static_cast<int>(pixels[idx + c]) + noise;
+                        pixels[idx + c] = static_cast<uint8_t>(std::clamp(value, 0, 255));
+                    }
                 }
             }
         }
@@ -69,6 +79,9 @@ public:
         ImGui::SliderFloat("Intensity", &m_intensity, 0.0f, 100.0f, "%.1f%%");
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         
+        ImGui::SliderInt("Grain Size", &m_grainSize, 1, 64, "%d px");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+
         changed |= ImGui::Checkbox("Monochrome", &m_monochrome);
         changed |= ImGui::InputInt("Seed", &m_seed);
 
@@ -88,6 +101,7 @@ public:
         copy->m_intensity = m_intensity;
         copy->m_monochrome = m_monochrome;
         copy->m_seed = m_seed;
+        copy->m_grainSize = m_grainSize;
         return copy;
     }
 
@@ -95,6 +109,7 @@ private:
     float m_intensity = 25.0f;  // 0-100%
     bool m_monochrome = false;
     int m_seed = 42;            // "Зерно" генератора
+    int m_grainSize = 1;        // Розмір зерна шуму в пікселях (1 = попіксельно)
 };
 
 } // namespace NoiseArt

@@ -17,6 +17,8 @@
 #include <vector>
 #include <set>
 #include <memory>
+#include <unordered_map>
+#include <cstdint>
 #include "Layer.h"
 #include "Image.h"
 
@@ -124,7 +126,16 @@ public:
     // ===== Dirty flag =====
     
     bool isDirty() const { return m_dirty; }
-    void setDirty(bool dirty = true) { m_dirty = dirty; }
+    // Будь-яка зміна (dirty=true) збільшує монотонний лічильник правок —
+    // ним інвалідовується кеш рендеру шейдерів (стійко до порядку панелей у кадрі).
+    void setDirty(bool dirty = true) { if (dirty) ++m_editGen; m_dirty = dirty; }
+
+    /// Монотонний лічильник правок (зростає при кожній зміні параметрів/структури)
+    uint64_t editGen() const { return m_editGen; }
+
+    // ===== Профайл навантаження (згладжені мс на шар, для UI) =====
+    void recordPerf(const Layer* layer, float ms);
+    float getPerfMs(const Layer* layer) const;
 
 private:
     /// Рекурсивна helper для flattenTree
@@ -138,6 +149,8 @@ private:
     Layer* m_selectedLayer = nullptr;  // Вибраний вузол будь-якого рівня (для редагування)
     std::set<int> m_selectedIndices;   // Multi-select (root indices)
     bool m_dirty = true;
+    uint64_t m_editGen = 1;            // монотонний лічильник правок (для інвалідації кешу)
+    std::unordered_map<const Layer*, float> m_perfMs;   // згладжений час рендеру шару (мс)
 };
 
 } // namespace NoiseArt

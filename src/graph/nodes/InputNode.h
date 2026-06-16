@@ -15,6 +15,7 @@ public:
 
     std::string getTypeName() const override { return "Input"; }
     std::string getCategory() const override { return "Input"; }
+    std::string serialType() const override { return "input"; }
 
     unsigned int evaluate(NodeEvalContext& ctx, const std::vector<unsigned int>&) override {
         return ctx.sourceTex;

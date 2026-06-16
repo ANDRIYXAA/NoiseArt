@@ -11,6 +11,7 @@
 #include "effects/Effect.h"
 #include "core/Image.h"
 #include <glad/glad.h>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
 
@@ -26,6 +27,8 @@ public:
 
     std::string getTypeName() const override { return m_effect ? m_effect->getName() : "Effect"; }
     std::string getCategory() const override { return m_effect ? m_effect->getCategory() : "Effect"; }
+    std::string serialType() const override { return "effect"; }
+    void writeParams(nlohmann::json& j) const override { if (m_effect) j["effect"] = m_effect->getName(); }
 
     unsigned int evaluate(NodeEvalContext& ctx, const std::vector<unsigned int>& inputTex) override {
         unsigned int inTex = inputTex.empty() ? 0u : inputTex[0];

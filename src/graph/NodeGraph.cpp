@@ -5,10 +5,15 @@
 #include "graph/nodes/InputNode.h"
 #include "graph/nodes/OutputNode.h"
 #include "graph/nodes/ShaderNode.h"
+#include "graph/nodes/CpuEffectNode.h"
+#include "effects/EffectRegistry.h"
+#include <nlohmann/json.hpp>
 #include <set>
 #include <functional>
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
+#include <string>
 
 namespace NoiseArt {
 
@@ -207,6 +212,110 @@ unsigned int NodeGraph::evaluate(NodeEvalContext& ctx) {
     m_lastRes      = ctx.width;
     m_lastEvalTime = ctx.time;
     return result;
+}
+
+nlohmann::json NodeGraph::toJson() const {
+    nlohmann::json j;
+    j["version"] = 1;
+
+    std::unordered_map<int, int> idx;   // nodeId -> індекс у масиві
+    nlohmann::json jnodes = nlohmann::json::array();
+    for (int i = 0; i < static_cast<int>(m_nodes.size()); ++i) {
+        const Node* n = m_nodes[i].get();
+        idx[n->id()] = i;
+        nlohmann::json jn;
+        jn["type"] = n->serialType();
+        jn["x"]    = n->m_editorX;
+        jn["y"]    = n->m_editorY;
+        n->writeParams(jn);
+        jnodes.push_back(jn);
+    }
+    j["nodes"]     = jnodes;
+    j["outputIdx"] = idx.count(m_outputNodeId) ? idx[m_outputNodeId] : -1;
+
+    nlohmann::json jlinks = nlohmann::json::array();
+    for (const auto& l : m_links) {
+        const int fromNode = socketOwnerNode(l.fromSocketId);
+        const int toNode   = socketOwnerNode(l.toSocketId);
+        if (!idx.count(fromNode) || !idx.count(toNode)) continue;
+        const Node* fn = findNode(fromNode);
+        const Node* tn = findNode(toNode);
+        int outIdx = -1, inIdx = -1;
+        for (int i = 0; i < static_cast<int>(fn->outputs().size()); ++i)
+            if (fn->outputs()[i].id == l.fromSocketId) outIdx = i;
+        for (int i = 0; i < static_cast<int>(tn->inputs().size()); ++i)
+            if (tn->inputs()[i].id == l.toSocketId) inIdx = i;
+        if (outIdx < 0 || inIdx < 0) continue;
+        nlohmann::json jl;
+        jl["fromIdx"] = idx[fromNode];
+        jl["outIdx"]  = outIdx;
+        jl["toIdx"]   = idx[toNode];
+        jl["inIdx"]   = inIdx;
+        jlinks.push_back(jl);
+    }
+    j["links"] = jlinks;
+    return j;
+}
+
+bool NodeGraph::fromJson(const nlohmann::json& j, EffectRegistry& registry) {
+    if (!j.contains("nodes") || !j["nodes"].is_array()) return false;
+
+    m_nodes.clear();
+    m_links.clear();
+    m_nextId = 1;
+    m_outputNodeId = -1;
+    m_inputNodeId  = -1;
+
+    std::vector<Node*> created;   // за індексом збереження (для лінків); null для пропущених
+    for (const auto& jn : j["nodes"]) {
+        const std::string type = jn.value("type", std::string());
+        Node* n = nullptr;
+        if (type == "shader") {
+            auto* s = createNode<ShaderNode>();
+            s->readParams(jn);
+            n = s;
+        } else if (type == "effect") {
+            auto eff = registry.createEffect(jn.value("effect", std::string()));
+            if (eff) n = createNode<CpuEffectNode>(std::move(eff));
+        } else if (type == "input") {
+            n = createNode<InputNode>();
+            if (n) m_inputNodeId = n->id();
+        } else if (type == "output") {
+            n = createNode<OutputNode>();
+            if (n) m_outputNodeId = n->id();
+        }
+        if (n) {
+            n->m_editorX = jn.value("x", 0.0f);
+            n->m_editorY = jn.value("y", 0.0f);
+        }
+        created.push_back(n);
+    }
+
+    const int outIdx = j.value("outputIdx", -1);
+    if (outIdx >= 0 && outIdx < static_cast<int>(created.size()) && created[outIdx])
+        m_outputNodeId = created[outIdx]->id();
+
+    if (j.contains("links") && j["links"].is_array()) {
+        for (const auto& jl : j["links"]) {
+            const int fi = jl.value("fromIdx", -1), oi = jl.value("outIdx", -1);
+            const int ti = jl.value("toIdx", -1),   ii = jl.value("inIdx", -1);
+            if (fi < 0 || fi >= static_cast<int>(created.size())) continue;
+            if (ti < 0 || ti >= static_cast<int>(created.size())) continue;
+            Node* fn = created[fi];
+            Node* tn = created[ti];
+            if (!fn || !tn) continue;
+            if (oi < 0 || oi >= static_cast<int>(fn->outputs().size())) continue;
+            if (ii < 0 || ii >= static_cast<int>(tn->inputs().size())) continue;
+            connect(fn->outputs()[oi].id, tn->inputs()[ii].id);
+        }
+    }
+
+    if (m_outputNodeId < 0) {   // гарантуємо наявність Output
+        auto* out = createNode<OutputNode>();
+        m_outputNodeId = out->id();
+    }
+    m_haveResult = false;       // інвалідувати граф-рівневий кеш
+    return true;
 }
 
 } // namespace NoiseArt

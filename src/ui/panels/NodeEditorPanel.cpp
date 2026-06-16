@@ -19,6 +19,9 @@
 
 #include <imgui.h>
 #include <imgui-node-editor/imgui_node_editor.h>
+#include <portable-file-dialogs.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 namespace ed = ax::NodeEditor;
 
@@ -52,6 +55,32 @@ bool NodeEditorPanel::render(LayerStack& stack, EffectRegistry& registry) {
         if (!nge) {
             ImGui::TextDisabled("Виберіть шар \"Node Graph\" у дереві шарів, щоб редагувати його граф.");
         } else {
+            // Тулбар: збереження / завантаження графа (поза канвою — діалоги працюють нормально)
+            if (ImGui::Button("Save Graph...")) {
+                auto path = pfd::save_file("Save Node Graph", "graph.json", { "JSON", "*.json" }).result();
+                if (!path.empty()) {
+                    std::ofstream f(path);
+                    if (f) f << nge->graph().toJson().dump(2);
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Load Graph...")) {
+                auto res = pfd::open_file("Load Node Graph", "", { "JSON", "*.json" }).result();
+                if (!res.empty()) {
+                    std::ifstream f(res[0]);
+                    if (f) {
+                        try {
+                            nlohmann::json jj; f >> jj;
+                            if (nge->graph().fromJson(jj, registry)) {
+                                m_positioned.clear();   // нові id нод
+                                m_navigateFrames = 2;
+                                dirty = true;
+                            }
+                        } catch (...) { /* ігноруємо биті файли */ }
+                    }
+                }
+            }
+
             if (!m_ctx) {
                 ed::Config cfg;
                 cfg.SettingsFile = nullptr;   // позиції зберігаємо самі (у нодах)

@@ -11,6 +11,7 @@
 #include <memory>
 #include <cstddef>
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
 #include "graph/Socket.h"
 #include "renderer/Framebuffer.h"
 #include "renderer/Texture.h"
@@ -70,6 +71,11 @@ public:
     //     параметри живуть у Effect без хешу), кеш додатково інвалідовується editGen.
     //     Безпечний типовий варіант — false (перераховувати на будь-яку правку). ---
     virtual bool cacheKeyComplete() const { return false; }
+
+    // --- Серіалізація (тип для реконструкції + власні параметри) ---
+    virtual std::string serialType() const = 0;          // "shader" / "effect" / "input" / "output"
+    virtual void writeParams(nlohmann::json&) const {}   // зберегти власні параметри
+    virtual void readParams(const nlohmann::json&) {}    // відновити власні параметри
 
     // --- Глибока копія (зберігає id ноди та id її сокетів) ---
     virtual std::unique_ptr<Node> clone() const = 0;

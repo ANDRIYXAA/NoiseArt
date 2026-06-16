@@ -10,9 +10,12 @@
 #include <vector>
 #include <memory>
 #include <utility>
+#include <nlohmann/json_fwd.hpp>
 #include "graph/Node.h"
 
 namespace NoiseArt {
+
+class EffectRegistry;
 
 class NodeGraph {
 public:
@@ -52,8 +55,12 @@ public:
     int  socketOwnerNode(int socketId) const;
     int  producerNodeForInput(int inputSocketId) const;  // nodeId продюсера або -1
 
-    // --- Обчислення (Phase 1: заглушка) ---
+    // --- Обчислення (топологічний прохід з по-нодним кешем) ---
     unsigned int evaluate(NodeEvalContext& ctx);
+
+    // --- Серіалізація (структура + позиції + параметри шейдер-нод; ефект-ноди за назвою) ---
+    nlohmann::json toJson() const;
+    bool fromJson(const nlohmann::json& j, EffectRegistry& registry);
 
 private:
     int  allocId() { return m_nextId++; }

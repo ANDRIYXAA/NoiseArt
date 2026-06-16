@@ -12,6 +12,7 @@
 #include <imgui.h>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <nlohmann/json.hpp>
 #include <memory>
 #include <cstddef>
 #include <functional>
@@ -32,6 +33,26 @@ public:
 
     bool isAnimated() const override { return m_speed > 1e-4f; }
     bool cacheKeyComplete() const override { return true; }   // paramHash покриває всі параметри
+    std::string serialType() const override { return "shader"; }
+
+    void writeParams(nlohmann::json& j) const override {
+        j["kind"]    = static_cast<int>(m_kind);
+        j["scale"]   = m_scale;
+        j["speed"]   = m_speed;
+        j["color"]   = { m_color[0], m_color[1], m_color[2] };
+        j["stretch"] = m_stretch;
+    }
+    void readParams(const nlohmann::json& j) override {
+        if (j.contains("kind"))  { m_kind = static_cast<Kind>(j["kind"].get<int>()); compile(); }
+        if (j.contains("scale")) m_scale = j["scale"].get<float>();
+        if (j.contains("speed")) m_speed = j["speed"].get<float>();
+        if (j.contains("color") && j["color"].is_array() && j["color"].size() >= 3) {
+            m_color[0] = j["color"][0].get<float>();
+            m_color[1] = j["color"][1].get<float>();
+            m_color[2] = j["color"][2].get<float>();
+        }
+        if (j.contains("stretch")) m_stretch = j["stretch"].get<bool>();
+    }
 
     std::size_t paramHash() const override {
         std::size_t h = 0;

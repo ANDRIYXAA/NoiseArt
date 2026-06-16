@@ -1,6 +1,12 @@
 // ============================================================================
 // NoiseArt — NodeEditorPanel (реалізація, imgui-node-editor)
 // ============================================================================
+// ВАЖЛИВО: ImGui-віджети з попапами (Combo, ColorEdit) НЕ працюють усередині
+// ed::BeginNode/EndNode — канва редактора застосовує трансформацію пан/зум, і
+// попапи (екранні координати) зміщуються/не клікаються. Тому тіло ноди = лише
+// заголовок + піни, а параметри ВИБРАНОЇ ноди редагуються у смузі ВНИЗУ вікна,
+// поза канвою.
+// ============================================================================
 #include "ui/panels/NodeEditorPanel.h"
 
 #include "core/LayerStack.h"
@@ -53,39 +59,41 @@ bool NodeEditorPanel::render(LayerStack& stack, EffectRegistry& registry) {
             }
 
             NodeGraph& g = nge->graph();
-            if (m_lastGraph != &g) { m_positioned.clear(); m_lastGraph = &g; }
+            if (m_lastGraph != &g) {          // зміна вибраного графа → перепозиціонувати + відцентрувати
+                m_positioned.clear();
+                m_lastGraph = &g;
+                m_navigateFrames = 2;
+            }
 
             ed::SetCurrentEditor(m_ctx);
-            ed::Begin("graph_canvas");
 
-            // ===== Ноди =====
+            // Канва лишає смугу параметрів унизу.
+            const float stripH = 190.0f;
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            float canvasH = avail.y - stripH;
+            if (canvasH < 80.0f) canvasH = 80.0f;
+            ed::Begin("graph_canvas", ImVec2(avail.x, canvasH));
+
+            // ===== Ноди (лише заголовок + піни; параметри — у смузі внизу) =====
             for (const auto& up : g.nodes()) {
                 Node* n = up.get();
                 if (!m_positioned.count(n->id())) {
                     ed::SetNodePosition(ed::NodeId(n->id()), ImVec2(n->m_editorX, n->m_editorY));
                     m_positioned.insert(n->id());
                 }
-
                 ed::BeginNode(ed::NodeId(n->id()));
                 ImGui::PushID(n->id());
                 ImGui::TextUnformatted(n->getTypeName().c_str());
-
                 for (const auto& s : n->inputs()) {
                     ed::BeginPin(ed::PinId(s.id), ed::PinKind::Input);
                     ImGui::Text("-> %s", s.name.c_str());
                     ed::EndPin();
                 }
-
-                ImGui::PushItemWidth(110.0f);
-                if (n->renderParamsUI()) dirty = true;
-                ImGui::PopItemWidth();
-
                 for (const auto& s : n->outputs()) {
                     ed::BeginPin(ed::PinId(s.id), ed::PinKind::Output);
                     ImGui::Text("%s ->", s.name.c_str());
                     ed::EndPin();
                 }
-
                 ImGui::PopID();
                 ed::EndNode();
 
@@ -161,7 +169,32 @@ bool NodeEditorPanel::render(LayerStack& stack, EffectRegistry& registry) {
             ed::Resume();
 
             ed::End();
+
+            // Авто-центрування одразу після відкриття/зміни графа.
+            if (m_navigateFrames > 0) { ed::NavigateToContent(0.0f); --m_navigateFrames; }
+
+            // Вибрана нода (поки редактор ще активний) — для смуги параметрів.
+            ed::NodeId selBuf[8];
+            const int selCount = ed::GetSelectedNodes(selBuf, 8);
             ed::SetCurrentEditor(nullptr);
+
+            // ===== Смуга параметрів вибраної ноди (ПОЗА канвою — попапи коректні) =====
+            ImGui::Separator();
+            Node* selNode = (selCount > 0) ? g.findNode(static_cast<int>(selBuf[0].Get())) : nullptr;
+            ImGui::BeginChild("nodeparams", ImVec2(0, 0), true);
+            if (selNode) {
+                ImGui::Text("Параметри: %s", selNode->getTypeName().c_str());
+                ImGui::Separator();
+                ImGui::PushID(selNode->id());
+                ImGui::PushItemWidth(200.0f);
+                if (selNode->renderParamsUI()) dirty = true;
+                ImGui::PopItemWidth();
+                ImGui::PopID();
+            } else {
+                ImGui::TextDisabled("Виберіть ноду, щоб редагувати її параметри.");
+                ImGui::TextDisabled("ПКМ по фону — додати ноду.");
+            }
+            ImGui::EndChild();
         }
     }
     ImGui::End();

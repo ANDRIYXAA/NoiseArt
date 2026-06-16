@@ -33,6 +33,7 @@ private:
     ax::NodeEditor::EditorContext* m_ctx = nullptr;
     const NodeGraph*               m_lastGraph = nullptr;  // визначення зміни вибраного графа
     std::set<int>                  m_positioned;           // ноди, вже спозиціоновані в редакторі
+    int                            m_navigateFrames = 0;   // авто-центрування viewport (кілька кадрів після відкриття)
     std::vector<std::string>       m_rasterNames;          // кеш імен растрових ефектів для палітри
 };
 

@@ -17,6 +17,8 @@ public:
     std::string getTypeName() const override { return "Output"; }
     std::string getCategory() const override { return "Output"; }
 
+    bool cacheKeyComplete() const override { return true; }   // лише прокидання входу
+
     unsigned int evaluate(NodeEvalContext&, const std::vector<unsigned int>& inputTex) override {
         return inputTex.empty() ? 0u : inputTex[0];
     }

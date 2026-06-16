@@ -31,6 +31,7 @@ public:
     std::string getCategory() const override { return "Shader"; }
 
     bool isAnimated() const override { return m_speed > 1e-4f; }
+    bool cacheKeyComplete() const override { return true; }   // paramHash покриває всі параметри
 
     std::size_t paramHash() const override {
         std::size_t h = 0;

@@ -7,8 +7,14 @@
 #include "graph/nodes/ShaderNode.h"
 #include <set>
 #include <functional>
+#include <cstddef>
+#include <cstdint>
 
 namespace NoiseArt {
+
+static inline void hashMix(std::size_t& h, std::size_t v) {
+    h ^= v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+}
 
 void NodeGraph::assignSocketIds(Node& n) {
     for (auto& s : n.inputs())  { s.id = allocId(); s.nodeId = n.id(); }
@@ -146,7 +152,8 @@ unsigned int NodeGraph::evaluate(NodeEvalContext& ctx) {
             return m_lastResult;                                  // анімація, але оновлювати зарано
     }
 
-    // Повний топологічний прохід (post-order DFS від Output).
+    // Топологічний прохід з ПОНОДНИМ кешем: перераховуємо лише ноди, чий ключ змінився
+    // (їх параметри або входи) + анімовані. Решта віддають кешовану текстуру.
     std::set<int> inProgress;
     std::set<int> done;
     std::function<unsigned int(int)> eval = [&](int nid) -> unsigned int {
@@ -154,16 +161,41 @@ unsigned int NodeGraph::evaluate(NodeEvalContext& ctx) {
         if (!n) return 0;
         if (done.count(nid)) return n->m_cacheTex;
         if (!inProgress.insert(nid).second) return 0;   // захист від циклу
+
         std::vector<unsigned int> inTex;
         inTex.reserve(n->inputs().size());
+
+        // Ключ ноди = параметри + RES + ключі вхідних нод (зміни течуть униз потоком).
+        std::size_t key = n->paramHash();
+        hashMix(key, static_cast<std::size_t>(ctx.width));
         for (const auto& s : n->inputs()) {
             int prod = producerNodeForInput(s.id);
-            inTex.push_back(prod >= 0 ? eval(prod) : 0u);   // 0 = вхід не під'єднано
+            if (prod >= 0) {
+                inTex.push_back(eval(prod));
+                Node* pn = findNode(prod);
+                hashMix(key, pn ? pn->m_cacheKey : 0u);
+            } else {
+                inTex.push_back(0u);          // вхід не під'єднано
+                hashMix(key, 0x9E37u);
+            }
         }
         inProgress.erase(nid);
+
+        const bool nodeAnimated = n->isAnimated();
+        if (!n->cacheKeyComplete())
+            hashMix(key, std::hash<uint64_t>{}(ctx.editGen));  // консервативно: інвалідувати на будь-яку правку
+        if (nodeAnimated)
+            hashMix(key, std::hash<long long>{}(static_cast<long long>(ctx.time * 1000.0f)));
+
+        if (ctx.cache && !nodeAnimated && n->m_cacheValid && n->m_cacheKey == key) {
+            done.insert(nid);
+            return n->m_cacheTex;             // понодний кеш-хіт — пропускаємо обчислення
+        }
+
         unsigned int tex = n->evaluate(ctx, inTex);
-        n->m_cacheTex   = tex;
+        n->m_cacheKey   = key;
         n->m_cacheValid = true;
+        n->m_cacheTex   = tex;
         done.insert(nid);
         return tex;
     };

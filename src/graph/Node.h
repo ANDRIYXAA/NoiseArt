@@ -66,6 +66,11 @@ public:
     // --- Чи залежить нода від часу? Графи з анімацією рендеряться щокадру (з тротлінгом). ---
     virtual bool isAnimated() const { return false; }
 
+    // --- Чи paramHash() ПОВНІСТЮ описує стан ноди? Якщо ні (напр. CpuEffectNode, чиї
+    //     параметри живуть у Effect без хешу), кеш додатково інвалідовується editGen.
+    //     Безпечний типовий варіант — false (перераховувати на будь-яку правку). ---
+    virtual bool cacheKeyComplete() const { return false; }
+
     // --- Глибока копія (зберігає id ноди та id її сокетів) ---
     virtual std::unique_ptr<Node> clone() const = 0;
 
